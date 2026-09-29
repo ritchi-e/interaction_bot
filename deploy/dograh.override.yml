@@ -1,0 +1,24 @@
+# Joins a Dograh checkout to this app's Docker network.
+# From the dograh directory, after the caller network exists:
+#   docker compose -f docker-compose.yaml -f ../deploy/dograh.override.yml up -d
+# Dograh still needs its own generated .env (see its scripts/start_docker.sh).
+
+services:
+  postgres:
+    ports: !reset []
+  api:
+    environment:
+      DEPLOYMENT_MODE: oss
+      ENABLE_TELEMETRY: "false"
+    networks:
+      - app-network
+      - caller
+  ui:
+    networks:
+      - app-network
+      - caller
+
+networks:
+  caller:
+    external: true
+    name: caller
