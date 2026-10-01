@@ -73,14 +73,15 @@ def selected_tts(campaign, keys=None):
 def spoken_voice_name(campaign, keys=None):
     """Speaker name the caller hears, for matching Hindi verb gender to the voice.
 
-    Rumik always speaks as Siya, regardless of any leftover voice name from
-    another provider. Sarvam with no voice picked speaks as Anushka, the
+    Rumik speaks as RUMIK_TTS_DEFAULT_SPEAKER (Siya when that is unset),
+    regardless of any leftover voice name from another provider. Sarvam with
+    no voice picked speaks as Anushka, the
     platform default in the shared Dograh base configuration.
     """
 
     provider, voice = selected_tts(campaign, keys)
     if provider == "rumik":
-        return "siya"
+        return (settings.RUMIK_TTS_DEFAULT_SPEAKER or "siya").strip().lower() or "siya"
     if provider == "sarvam":
         return (voice or "anushka").lower()
     return voice.lower()
@@ -145,6 +146,20 @@ def _tts_override(campaign, keys):
         return {"provider": provider, "voice": voice, "api_key": api_key}
 
     return None
+
+
+def rumik_bridge_target(campaign, keys=None):
+    """(base_url, model) the campaign's greeting will be spoken with, or None.
+
+    Only Rumik runs through our own bridge and can be asked to start
+    synthesizing ahead of pickup; every other provider talks straight to its
+    own vendor from inside Dograh and offers us no pre-warm hook.
+    """
+
+    override = _tts_override(campaign, keys)
+    if not override or override.get("provider") != "openai":
+        return None
+    return override.get("base_url"), override.get("model")
 
 
 def build_model_overrides(campaign, keys=None):

@@ -64,15 +64,37 @@ def prepare_messages(messages, prompt):
     return [{"role": "system", "content": prompt}, *rest]
 
 
+# English, Hindi, and the romanised Hindi Deepgram often returns on these calls.
+# A bare "thank you" is intentionally absent: people say it mid-conversation.
 DONE_RE = re.compile(
+    r"("
     r"\b(that will be all|that'?s all|that is all|nothing else|no more questions|"
-    r"goodbye|good bye|bye|that'?s it|that is it)\b",
+    r"goodbye|good bye|\bbye\b|that'?s it|that is it|no thanks|no thank you|"
+    r"i'?m good|im good|all good|that'?s fine|nothing more)\b"
+    r"|और कुछ नहीं|कुछ नहीं|नहीं चाहिए|बस इतना|बस हो गया|रहने दो|"
+    r"अलविदा|गुड ?बाय|कॉल काट|फोन रख"
+    r"|\b(bas itna|bas ho gaya|aur kuch nahi|kuch nahi|nahi chahiye|"
+    r"rehne do|alvida|alvida|ok bye)\b"
+    r")",
     re.IGNORECASE,
 )
 
+# The whole utterance is a refusal, with nothing else asked.
+BARE_NO_RE = re.compile(r"^(no|nope|nah|nahi|nahin|na|नहीं|ना)[\s.!?।]*$", re.IGNORECASE)
 
 WANT_RE = re.compile(
-    r"\b(yes|yeah|yep|sure|please|tell me|know more|more about|offer|sale|what|how|price|delivery|return)\b",
+    r"("
+    r"\b(yes|yeah|yep|sure|please|tell me|know more|more about|offer|sale|"
+    r"what|how|price|delivery|return)\b"
+    r"|हाँ|हां|बताओ|बताइए|बता दीजिए|और बता|कीमत|डिलीवरी|रिटर्न|सेल|ऑफर"
+    r")",
+    re.IGNORECASE,
+)
+
+FAREWELL_RE = re.compile(
+    r"(आपके समय के लिए धन्यवाद|आपका दिन अच्छा|आपका दिन शुभ|"
+    r"thank you for your time|have a (great|good|nice) day|"
+    r"good\s*bye|\bgoodbye\b|take care|शुभ दिन|अलविदा)",
     re.IGNORECASE,
 )
 
@@ -87,7 +109,25 @@ def _last_user_text(messages):
 
 def caller_is_done(messages):
     """The caller ended the conversation. A lone thank-you is not enough."""
-    return bool(DONE_RE.search(_last_user_text(messages)))
+    last = _last_user_text(messages).strip()
+    if DONE_RE.search(last):
+        return True
+    if BARE_NO_RE.match(last):
+        return True
+    return bool(re.fullmatch(r"(bas|bass|बस)[\s.!?।]*", last, re.IGNORECASE))
+
+
+def is_farewell(text):
+    """The model is signing off instead of calling the hang-up function."""
+    return bool(FAREWELL_RE.search(text or ""))
+
+
+def closing_line(instruction):
+    """The one sentence the end-of-call node is supposed to speak."""
+    marker = "Say this closing line verbatim and then stop:"
+    if marker not in (instruction or ""):
+        return ""
+    return instruction.split(marker, 1)[1].strip()
 
 
 def caller_wants_more(messages):

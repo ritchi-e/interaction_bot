@@ -44,11 +44,26 @@ MAX_IDLE = int(os.environ.get("RUMIK_WS_MAX_IDLE", "8"))
 FIRST_AUDIO_TIMEOUT = float(os.environ.get("RUMIK_FIRST_AUDIO_TIMEOUT", "4"))
 CHUNK_TIMEOUT = float(os.environ.get("RUMIK_CHUNK_TIMEOUT", "10"))
 
+# A greeting (and closing line) is the same text for every call on a campaign.
+# The backend asks us to start synthesizing it the moment it starts dialing,
+# while Plivo is still ringing, so by the time the call is answered and Dograh
+# actually requests `/v1/audio/speech`, the audio is already sitting here and
+# goes out with no network round trip at all. Entries are kept for a short
+# while (not removed on first use) so a second call to the same campaign
+# within that window, or a Dograh retry, benefits too.
+PREWARM_TTL = float(os.environ.get("RUMIK_PREWARM_TTL", "120"))
+PREWARM_MAX = int(os.environ.get("RUMIK_PREWARM_MAX", "64"))
+
+# The campaign presets below all speak as this one speaker. Language only
+# changes the description (Hindi, Indian English, Hinglish). Set
+# RUMIK_TTS_DEFAULT_SPEAKER in the environment to change who is heard.
+SPEAKER = (os.environ.get("RUMIK_TTS_DEFAULT_SPEAKER") or "siya").strip() or "siya"
+
 # Keyed by the `model` string a Dograh workflow's TTS override sends. Falls
 # back to DEFAULT_PRESET for a bare "gpt-4o-mini-tts" request (no override set)
 # or for any unrecognized name, so old workflows keep working unchanged.
 DEFAULT_PRESET = {
-    "speaker": os.environ.get("RUMIK_TTS_DEFAULT_SPEAKER", "siya"),
+    "speaker": SPEAKER,
     "description": os.environ.get(
         "RUMIK_TTS_DESCRIPTION",
         "a warm Indian woman, clear Hindi and English, short pauses, calm voice",
@@ -56,21 +71,21 @@ DEFAULT_PRESET = {
 }
 PRESETS = {
     "rumik-siya-hindi": {
-        "speaker": "siya",
+        "speaker": SPEAKER,
         "description": (
             "a warm Indian woman speaking Hindi, clear Hindi accent, natural Hindi "
             "prosody, short pauses, calm feminine voice"
         ),
     },
     "rumik-siya-english-indian": {
-        "speaker": "siya",
+        "speaker": SPEAKER,
         "description": (
             "a warm Indian woman speaking Indian English, clear Indian English "
             "accent, short pauses, calm voice"
         ),
     },
     "rumik-siya-hinglish": {
-        "speaker": "siya",
+        "speaker": SPEAKER,
         "description": (
             "a warm Indian woman speaking Hinglish, moving naturally between Hindi "
             "and English words within the same sentence, clear Indian accent, "
@@ -218,6 +233,7 @@ class Pool:
 async def lifespan(app):
     app.state.client = httpx.AsyncClient(http2=False, timeout=40.0)
     app.state.pool = Pool(app.state.client)
+    app.state.prewarm = {}
     await app.state.pool._fill()
     log.info(
         "rumik bridge ready, %d warm sockets, model=%s, presets=%s, default=%s",
@@ -290,6 +306,96 @@ async def _stream(pool, sock, first, started, text):
             await sock.close()
 
 
+class Prewarmed:
+    """A greeting being (or having been) synthesized ahead of time.
+
+    `chunks` only ever grows; `event` is pulsed (set then cleared within the
+    same tick, with no `await` in between) every time a chunk is appended or
+    the stream finishes, which is enough to wake any consumer already waiting
+    on it without racing a consumer that attaches later.
+    """
+
+    def __init__(self):
+        self.chunks: list[bytes] = []
+        self.event = asyncio.Event()
+        self.done = False
+        self.error: str | None = None
+        self.created = time.monotonic()
+
+    def append(self, chunk: bytes):
+        self.chunks.append(chunk)
+        self.event.set()
+        self.event.clear()
+
+    def finish(self, error: str | None = None):
+        self.done = True
+        self.error = error
+        self.event.set()
+        self.event.clear()
+
+
+def _prewarm_key(body: dict) -> tuple[str, str]:
+    text = " ".join((body.get("input") or body.get("text") or "").split())[:500]
+    return body.get("model") or "", text
+
+
+def _gc_prewarm(store: dict):
+    now = time.monotonic()
+    for key, pw in list(store.items()):
+        if now - pw.created > PREWARM_TTL:
+            store.pop(key, None)
+    while len(store) > PREWARM_MAX:
+        oldest = min(store, key=lambda k: store[k].created)
+        store.pop(oldest, None)
+
+
+async def _fill_prewarm(pool, text, preset, pw: Prewarmed):
+    started = time.perf_counter()
+    try:
+        sock, first = await _start_stream(pool, text, preset)
+        pw.append(first)
+        async for chunk in _stream(pool, sock, first, started, text):
+            if chunk is first:
+                continue
+            pw.append(chunk)
+        pw.finish()
+    except Exception as exc:
+        log.warning("rumik prewarm failed: %s", exc)
+        pw.finish(error=str(exc))
+
+
+async def _consume_prewarmed(pw: Prewarmed):
+    idx = 0
+    while True:
+        if idx < len(pw.chunks):
+            yield pw.chunks[idx]
+            idx += 1
+            continue
+        if pw.done:
+            if pw.error and idx == 0:
+                raise RuntimeError(pw.error)
+            return
+        await pw.event.wait()
+
+
+@app.post("/v1/audio/prewarm")
+async def prewarm(request: Request):
+    body = await request.json()
+    model, text = _prewarm_key(body)
+    if not text:
+        return Response(status_code=400)
+    store = request.app.state.prewarm
+    _gc_prewarm(store)
+    key = (model, text)
+    if key not in store:
+        pw = Prewarmed()
+        store[key] = pw
+        preset = _preset(model)
+        asyncio.create_task(_fill_prewarm(request.app.state.pool, text, preset, pw))
+        log.info("rumik prewarm started (%d chars, %s)", len(text), preset["speaker"])
+    return {"status": "ok"}
+
+
 async def _http_fallback(client, text, preset):
     response = await client.post(
         f"{GATEWAY}/v1/tts",
@@ -304,15 +410,15 @@ async def _http_fallback(client, text, preset):
 @app.post("/v1/audio/speech")
 async def speech(request: Request):
     body = await request.json()
-    text = " ".join((body.get("input") or body.get("text") or "").split())[:500]
+    model, text = _prewarm_key(body)
     if not text:
         return Response(status_code=400)
-    preset = _preset(body.get("model"))
+    preset = _preset(model)
 
     pool = request.app.state.pool
     started = time.perf_counter()
 
-    async def body():
+    async def live_body():
         # Start the response at once. Waiting here for Rumik's first sound made
         # the call close the greeting before any audio arrived.
         yield b"\x00" * 4800
@@ -338,4 +444,28 @@ async def speech(request: Request):
             log.warning("served the voice from the http fallback after %s", last_error)
         yield pcm
 
-    return StreamingResponse(body(), media_type="audio/pcm")
+    pw = request.app.state.prewarm.get((model, text))
+
+    async def cached_body():
+        served = False
+        try:
+            async for chunk in _consume_prewarmed(pw):
+                served = True
+                yield chunk
+        except Exception as exc:
+            if served:
+                log.warning("rumik prewarm ended early, serving what was ready: %s", exc)
+                return
+            log.warning("rumik prewarm had nothing usable, falling back live: %s", exc)
+            async for chunk in live_body():
+                yield chunk
+            return
+        if served:
+            log.info("rumik served prewarmed greeting (%d chars)", len(text))
+        else:
+            async for chunk in live_body():
+                yield chunk
+
+    if pw is not None:
+        return StreamingResponse(cached_body(), media_type="audio/pcm")
+    return StreamingResponse(live_body(), media_type="audio/pcm")

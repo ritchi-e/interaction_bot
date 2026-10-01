@@ -73,11 +73,16 @@ services:
     env_file:
       - ../.env
     environment:
+      # Only literal, non-secret values here. UPSTREAM_LLM_API_KEY and
+      # INTERNAL_API_TOKEN come from env_file above; re-declaring them as
+      # `${VAR}` made Compose resolve them against its own project-directory
+      # .env lookup (which is relative to this file's folder, not the repo
+      # root) instead of the env_file value, blanking them out whenever
+      # Compose is invoked without that exact variable already exported in
+      # the calling shell.
       UPSTREAM_LLM_BASE_URL: ${UPSTREAM_LLM_BASE_URL:-https://api.openai.com/v1}
-      UPSTREAM_LLM_API_KEY: ${UPSTREAM_LLM_API_KEY:-}
       UPSTREAM_LLM_MODEL: ${UPSTREAM_LLM_MODEL:-gpt-4o-mini}
       BACKEND_INTERNAL_URL: http://backend:8000
-      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
     depends_on:
       - backend
 
@@ -91,8 +96,9 @@ services:
     command: uvicorn rumik_bridge:app --host 0.0.0.0 --port 8080
     env_file:
       - ../.env
-    environment:
-      RUMIK_API_KEY: ${RUMIK_API_KEY:-}
+    # RUMIK_API_KEY comes from env_file above; see the comment on
+    # context-guard's environment block for why it must not be re-declared
+    # here as `${RUMIK_API_KEY:-}`.
 
   frontend:
     build:

@@ -7,6 +7,7 @@ sentence of the model output before it is returned.
 
 import json
 import os
+import re
 
 import httpx
 from fastapi import FastAPI, Request
@@ -17,10 +18,12 @@ from guard import (
     caller_is_done,
     caller_wants_more,
     closing_instruction,
+    closing_line,
     without_end_call,
     extract_ids,
     force_sampling,
     guard_text,
+    is_farewell,
     prepare_messages,
     take_complete,
     validate_sentence,
@@ -105,6 +108,38 @@ async def record_violations(policy, call_request_id, violations):
                 return
 
 
+def _keep_tool_calls(calls, handoff_indexes):
+    """Drop request_handoff, including the later chunks of the same call.
+
+    Dograh has no such tool. Returning it makes Dograh run the model again,
+    which is how the closing line starts looping.
+    """
+    kept = []
+    handed_off = False
+    for call in calls or []:
+        name = ((call.get("function") or {}).get("name")) or ""
+        index = call.get("index", 0)
+        if name == "request_handoff":
+            handoff_indexes.add(index)
+        if index in handoff_indexes:
+            handed_off = True
+            continue
+        kept.append(call)
+    return kept, handed_off
+
+
+def _without_signoff(spoken):
+    """Remove a goodbye so the end-call node can say the closing line once.
+
+    A reply that still asks a question is left alone: they are not finished.
+    """
+    parts = [part.strip() for part in re.split(r"(?<=[.!?।])\s+", spoken) if part.strip()]
+    if not parts or any("?" in part for part in parts):
+        return spoken, False
+    kept = [part for part in parts if not is_farewell(part)]
+    return " ".join(kept).strip(), len(kept) < len(parts)
+
+
 def screen_piece(piece, facts, forbidden, competitors, handoff, flush=False):
     """Validate finished sentences. Leave an unfinished tail in the buffer."""
     complete, rest = take_complete(piece)
@@ -149,6 +184,19 @@ async def chat_completions(request: Request):
         return JSONResponse(completion(text, stream=False))
 
     closing = closing_instruction(messages)
+    # The end node only has to say the closing line. Calling the model here is
+    # what made it say that line, then say it again, without ever dropping the call.
+    line = closing_line(closing) if closing else ""
+    if line:
+        if stream:
+            async def close_once():
+                yield chunk(line if line.endswith((" ", "।", ".", "?")) else line + " ")
+                yield chunk(finish="stop")
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(close_once(), media_type="text/event-stream")
+        return JSONResponse(completion(line, stream=False))
+
     prompt = closing or policy["prompt"]
     rewritten = force_sampling(body, include_handoff=not closing)
     rewritten["messages"] = prepare_messages(messages, prompt)
@@ -180,17 +228,22 @@ async def chat_completions(request: Request):
 
     ending = caller_is_done(messages) and not closing
 
-    def mentions_done(delta):
-        for call in delta.get("tool_calls") or []:
-            name = ((call.get("function") or {}).get("name")) or ""
-            if name == "done":
-                return True
-        return False
-
     async def generate():
         buffer = ""
         blocked = False
         saw_done = False
+        signing_off = False
+        handed_off = False
+        spoke = False
+        handoff_indexes = set()
+
+        def speak(text):
+            nonlocal spoke
+            if not text:
+                return None
+            spoke = True
+            return chunk(text if text.endswith(" ") else text + " ")
+
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST", f"{UPSTREAM}/chat/completions", json=rewritten, headers=headers
@@ -211,9 +264,14 @@ async def chat_completions(request: Request):
                         continue
                     delta = ((event.get("choices") or [{}])[0].get("delta")) or {}
                     if delta.get("tool_calls"):
-                        if mentions_done(delta):
+                        kept, saw_handoff = _keep_tool_calls(delta["tool_calls"], handoff_indexes)
+                        handed_off = handed_off or saw_handoff
+                        if any(
+                            ((call.get("function") or {}).get("name")) == "done" for call in kept
+                        ):
                             saw_done = True
-                        yield chunk(tool_calls=delta["tool_calls"])
+                        if kept:
+                            yield chunk(tool_calls=kept)
                     if ending or blocked:
                         continue
                     piece = delta.get("content") or ""
@@ -225,7 +283,11 @@ async def chat_completions(request: Request):
                     )
                     buffer = rest
                     if spoken:
-                        yield chunk(spoken if spoken.endswith(" ") else spoken + " ")
+                        spoken, signed = _without_signoff(spoken)
+                        signing_off = signing_off or signed
+                        frame = speak(spoken)
+                        if frame:
+                            yield frame
                     if violations:
                         await record_violations(policy, call_request_id, violations)
                     if blocked_now:
@@ -237,8 +299,14 @@ async def chat_completions(request: Request):
             )
             await record_violations(policy, call_request_id, violations)
             if spoken:
-                yield chunk(spoken)
-        if ending and not saw_done:
+                spoken, signed = _without_signoff(spoken)
+                signing_off = signing_off or signed
+                frame = speak(spoken)
+                if frame:
+                    yield frame
+        if handed_off and not spoke and not blocked and not ending and not signing_off:
+            yield chunk(handoff)
+        if (ending or signing_off) and not saw_done:
             yield chunk(
                 tool_calls=[
                     {

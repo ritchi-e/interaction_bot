@@ -2,8 +2,32 @@ from django.utils import timezone
 
 import httpx
 
+from apps.agents.model_overrides import rumik_bridge_target
 from apps.calls.dograh import DograhClient, DograhError
 from apps.compliance.checks import evaluate_call
+
+
+def _prewarm_greeting(campaign, keys, text):
+    """Ask the Rumik bridge to start synthesizing the greeting right away.
+
+    Fired just before we dial, so the voice is already rendered by the time
+    Plivo finishes ringing and Dograh actually asks for it (see
+    context_guard/rumik_bridge.py's /v1/audio/prewarm). Best-effort only: any
+    failure here just means the call falls back to the normal on-demand path,
+    with no change in behaviour.
+    """
+
+    text = (text or "").strip()
+    if not text:
+        return
+    target = rumik_bridge_target(campaign, keys)
+    if not target:
+        return
+    base_url, model = target
+    try:
+        httpx.post(f"{base_url}/audio/prewarm", json={"input": text, "model": model}, timeout=2.0)
+    except httpx.HTTPError:
+        pass
 
 
 def apply_decision(call_request, moment=None):
@@ -44,6 +68,9 @@ def place_dograh_call(call_request):
     api_key = keys.dograh_api_key if keys and keys.dograh_api_key else ""
     agent = getattr(campaign, "agent_profile", None)
     workflow_uuid = (agent.dograh_workflow_uuid if agent and agent.dograh_workflow_uuid else "") or campaign.dograh_workflow_uuid
+
+    if agent is not None:
+        _prewarm_greeting(campaign, keys, agent.greeting)
 
     initial_context = {
         "campaign_id": str(campaign.id),
