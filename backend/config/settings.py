@@ -148,7 +148,12 @@ SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "")
 CARTESIA_API_KEY = os.environ.get("CARTESIA_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 RUMIK_API_KEY = os.environ.get("RUMIK_API_KEY", "")
-RUMIK_API_URL = os.environ.get("RUMIK_API_URL", "")
+# Base URL of the rumik-bridge service (deploy/docker-compose.yml), an
+# OpenAI-compatible facade in front of Rumik's streaming TTS. Dograh's org
+# model configuration points its TTS `base_url` here; a campaign's TTS
+# override then only needs to name a voice preset via `model`. See
+# context_guard/rumik_bridge.py and apps/agents/model_overrides.py.
+RUMIK_BRIDGE_URL = os.environ.get("RUMIK_BRIDGE_URL", "http://rumik-bridge:8080/v1")
 RUMIK_TTS_MODEL = os.environ.get("RUMIK_TTS_MODEL", "")
 RUMIK_TTS_DEFAULT_SPEAKER = os.environ.get("RUMIK_TTS_DEFAULT_SPEAKER", "")
 

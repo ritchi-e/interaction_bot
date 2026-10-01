@@ -1,7 +1,15 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from apps.tenants.models import BusinessProfile, Organisation, ProviderKeys, User, WhatsAppCalling, WhatsAppConnection
+from apps.tenants.models import (
+    BusinessProfile,
+    Organisation,
+    PlivoLine,
+    ProviderKeys,
+    User,
+    WhatsAppCalling,
+    WhatsAppConnection,
+)
 
 
 def mask(value):
@@ -91,6 +99,31 @@ class WhatsAppCallingSerializer(serializers.ModelSerializer):
             "is_ready",
         ]
         read_only_fields = ["calling_enabled", "sip_enabled", "asterisk_endpoint", "is_ready"]
+
+
+class PlivoLineSerializer(serializers.ModelSerializer):
+    auth_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    auth_token_masked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlivoLine
+        fields = [
+            "auth_id",
+            "auth_token",
+            "auth_token_masked",
+            "caller_id",
+            "dograh_config_id",
+            "is_ready",
+        ]
+        read_only_fields = ["dograh_config_id", "is_ready"]
+
+    def get_auth_token_masked(self, obj):
+        return mask(obj.auth_token)
+
+    def update(self, instance, validated_data):
+        if validated_data.get("auth_token", None) == "":
+            validated_data.pop("auth_token")
+        return super().update(instance, validated_data)
 
 
 class ProviderKeysSerializer(serializers.ModelSerializer):

@@ -44,8 +44,9 @@ def test_publish_updates_existing_workflow(monkeypatch):
     )
     called = {}
 
-    def update(self, workflow_id, name, definition):
+    def update(self, workflow_id, name, definition, workflow_configurations=None):
         called["id"] = workflow_id
+        called["workflow_configurations"] = workflow_configurations
         return {"id": workflow_id, "uuid": "wf-uuid"}
 
     monkeypatch.setattr("apps.agents.publish.DograhAdmin.update_workflow", update)
@@ -54,6 +55,12 @@ def test_publish_updates_existing_workflow(monkeypatch):
     assert called["id"] == 7
     profile.refresh_from_db()
     assert profile.dograh_workflow_uuid == "wf-uuid"
+    # The Hindi campaign in _campaign() gets Deepgram STT pinned to "hi" and
+    # no keyterm dictionary (unlike the viva script's per-workflow overrides).
+    overrides = called["workflow_configurations"]["model_overrides"]
+    assert overrides["stt"]["provider"] == "deepgram"
+    assert overrides["stt"]["language"] == "hi"
+    assert "dictionary" not in called["workflow_configurations"]
 
 
 @pytest.mark.django_db
@@ -63,3 +70,45 @@ def test_role_is_in_the_compiled_prompt():
     prompt = compile_system_prompt(campaign)
     assert "loan advisor" in prompt
     assert "Warm and brief." in prompt
+
+
+@pytest.mark.django_db
+def test_hindi_prompt_locks_feminine_forms_for_the_default_voice():
+    campaign = _campaign()
+    prompt = compile_system_prompt(campaign)
+    assert "समझ गई" in prompt
+    assert "Never use masculine forms for yourself" in prompt
+
+
+@pytest.mark.django_db
+def test_hinglish_rumik_voice_stays_feminine_even_if_a_male_name_is_stored():
+    campaign = _campaign()
+    campaign.language = "hinglish"
+    campaign.tts_provider = "rumik"
+    campaign.tts_voice = "abhilash"
+    campaign.save()
+    prompt = compile_system_prompt(campaign)
+    assert "You are a woman." in prompt
+    assert "समझ गई" in prompt
+
+
+@pytest.mark.django_db
+def test_male_sarvam_voice_locks_masculine_forms():
+    campaign = _campaign()
+    campaign.tts_provider = "sarvam"
+    campaign.tts_voice = "abhilash"
+    campaign.save()
+    prompt = compile_system_prompt(campaign)
+    assert "You are a man." in prompt
+    assert "समझ गया" in prompt
+    assert "Never use feminine forms for yourself" in prompt
+
+
+@pytest.mark.django_db
+def test_english_prompt_has_no_hindi_gender_rule():
+    campaign = _campaign()
+    campaign.language = "en_in"
+    campaign.save()
+    prompt = compile_system_prompt(campaign)
+    assert "समझ गई" not in prompt
+    assert "You are a woman." not in prompt

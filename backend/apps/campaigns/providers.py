@@ -16,10 +16,15 @@ def dograh_model_configuration(keys):
         "cartesia": {"provider": "cartesia", "model": "sonic", "voice": keys.tts_voice or ""},
         "elevenlabs": {"provider": "elevenlabs", "model": "eleven_flash_v2_5", "voice": keys.tts_voice or ""},
         "rumik": {
-            "provider": "rumik",
-            "model": "streaming",
-            "voice": keys.tts_voice or "",
-            "note": "Rumik is not built into Dograh. Use deploy/dograh-overrides/rumik_tts.py.",
+            "provider": "openai",
+            "base_url": settings.RUMIK_BRIDGE_URL,
+            "model": "rumik-siya-hindi",
+            "note": (
+                "Routed through the rumik-bridge service, an OpenAI-compatible "
+                "facade in front of Rumik's streaming voice (low first-audio "
+                "latency). `model` picks a language preset per campaign; see "
+                "apps/agents/model_overrides.py."
+            ),
         },
     }
     return {
@@ -37,7 +42,12 @@ def dograh_model_configuration(keys):
             "endpointing_ms": 300,
             "key_source": "tenant" if keys.deepgram_api_key else "platform",
             "platform_key_set": bool(settings.DEEPGRAM_API_KEY),
+            "note": (
+                "This is the org-level default. Each campaign's published "
+                "workflow overrides the language (hi/en/multi) to match its "
+                "own Campaign.language; see apps/agents/model_overrides.py."
+            ),
         },
         "tts": tts_models.get(tts_provider, tts_models["sarvam"]),
-        "telephony": {"provider": "whatsapp", "caller_id_format": "+91XXXXXXXXXX"},
+        "telephony": {"provider": "plivo", "caller_id_format": "+91XXXXXXXXXX"},
     }

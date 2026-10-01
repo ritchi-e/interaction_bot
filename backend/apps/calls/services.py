@@ -39,13 +39,12 @@ def place_dograh_call(call_request):
 
     campaign = call_request.campaign
     lead = call_request.lead
-    calling = getattr(call_request.organisation, "whatsapp_calling", None)
+    plivo = getattr(call_request.organisation, "plivo", None)
     keys = getattr(call_request.organisation, "provider_keys", None)
     api_key = keys.dograh_api_key if keys and keys.dograh_api_key else ""
     agent = getattr(campaign, "agent_profile", None)
     workflow_uuid = (agent.dograh_workflow_uuid if agent and agent.dograh_workflow_uuid else "") or campaign.dograh_workflow_uuid
 
-    destination = f"PJSIP/{lead.phone_e164}@{calling.asterisk_endpoint}"
     initial_context = {
         "campaign_id": str(campaign.id),
         "call_request_id": str(call_request.id),
@@ -60,10 +59,11 @@ def place_dograh_call(call_request):
     attempt = call_request.attempts.create(status="dialing")
     try:
         result = client.initiate_call(
-            phone_number=destination,
+            phone_number=lead.phone_e164,
             initial_context=initial_context,
             workflow_uuid=workflow_uuid,
             trigger_uuid=campaign.dograh_trigger_uuid,
+            telephony_configuration_id=str(plivo.dograh_config_id) if plivo and plivo.dograh_config_id else "",
         )
     except (DograhError, httpx.HTTPError) as exc:
         attempt.status = "failed"

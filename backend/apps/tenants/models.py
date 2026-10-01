@@ -99,6 +99,27 @@ class WhatsAppCalling(TimeStampedModel):
         return bool(self.calling_enabled and self.sip_enabled and self.sip_password and self.asterisk_endpoint)
 
 
+class PlivoLine(TimeStampedModel):
+    """The phone line Dograh uses to dial this business's customers.
+
+    A WhatsApp reply still starts the campaign. The call itself is a normal
+    phone call placed through Plivo, not a WhatsApp call.
+    """
+
+    organisation = models.OneToOneField(
+        Organisation, on_delete=models.CASCADE, related_name="plivo"
+    )
+    auth_id = models.CharField(max_length=64, blank=True)
+    auth_token = EncryptedTextField(blank=True)
+    caller_id = models.CharField(max_length=20, blank=True)
+    dograh_config_id = models.PositiveIntegerField(null=True, blank=True)
+    dograh_phone_number_id = models.PositiveIntegerField(null=True, blank=True)
+
+    @property
+    def is_ready(self):
+        return bool(self.auth_id and self.auth_token and self.caller_id and self.dograh_config_id)
+
+
 class ProviderKeys(TimeStampedModel):
     TTS_CHOICES = [
         ("sarvam", "Sarvam Bulbul"),

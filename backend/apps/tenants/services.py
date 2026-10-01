@@ -7,6 +7,7 @@ from apps.tenants.models import (
     Organisation,
     ProviderKeys,
     User,
+    PlivoLine,
     WhatsAppCalling,
     WhatsAppConnection,
 )
@@ -33,4 +34,5 @@ def create_organisation(name, email, password):
         webhook_token=secrets.token_urlsafe(24),
     )
     ProviderKeys.objects.create(organisation=organisation)
+    PlivoLine.objects.create(organisation=organisation)
     return user

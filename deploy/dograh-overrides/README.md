@@ -7,18 +7,22 @@ Dograh's OpenAI LLM provider accepts a custom base URL. Point it at the context 
 | LLM provider | OpenAI (compatible) |
 | Base URL | `http://context-guard:8080/v1` |
 | Model | `gpt-4o-mini` (or whatever `UPSTREAM_LLM_MODEL` is set to) |
-| Transcriber | Deepgram Nova-3, language `multi`, endpointing 300ms |
-| Voice | Sarvam Bulbul (`bulbul:v2`, voice `anushka`) unless the campaign picks Cartesia or ElevenLabs |
-| Telephony | WhatsApp, via the Asterisk bridge (`PJSIP/+91…@endpoint`) |
+| Transcriber | Deepgram Nova-3, language `multi` (a campaign overrides this to `hi`/`en`/`multi` to match its own language) |
+| Voice | Sarvam Bulbul (`bulbul:v2`, voice `anushka`) by default; a campaign overrides this to Rumik, Cartesia, or ElevenLabs |
+| Telephony | Plivo. A WhatsApp reply starts the campaign; Dograh dials the mobile through Plivo |
+
+Run `python manage.py bootstrap_dograh` (from `backend/`) to PUT this base configuration once instead of pasting it into Dograh's UI by hand. Every business shares the same Dograh org (one platform API key), so this only needs to run once per environment, and again whenever the base defaults themselves change.
 
 The agent node prompt must stay the minimal template from `MINIMAL_DOGRAH_PROMPT` in `backend/apps/campaigns/prompt_compiler.py`. The dashboard's "Preview prompt" button prints it. The context guard deletes any other system prompt and inserts the campaign's facts.
 
+## Per-campaign STT language and TTS voice
+
+Each `Campaign` has its own `language` (`hi` / `en_in` / `hinglish`) and, optionally, its own `tts_provider` / `tts_voice`. `backend/apps/agents/model_overrides.py` turns those into a `workflow_configurations.model_overrides` payload that `apps/agents/publish.py` sends every time an agent is published — on top of the shared base above, not replacing it. STT always gets an explicit language override (`hi`, `en`, or `multi`, matching Deepgram's own guidance that a single-language model beats `multi` when the audio isn't actually code-switched). TTS is only overridden when there's a fully self-contained provider + API key to send.
+
+No keyterm dictionary is set here. That mechanism lives only in the local viva tester (`viva/setup_dograh_viva.py`), whose calls are about a fixed technical vocabulary. Real campaigns talk about a business's own offer, so there's nothing worth biasing every call toward.
+
 ## Rumik
 
-`rumik_tts.py` is the adapter for campaigns whose voice is Rumik. Dograh has no built-in Rumik provider.
+Rumik is not a Dograh-native TTS provider, so it's fronted by `rumik-bridge`, an OpenAI-compatible facade (`context_guard/rumik_bridge.py`, deployed as its own service in `deploy/docker-compose.yml`) with Rumik's low-latency streaming voice behind it. A campaign that picks Rumik gets a TTS override shaped like OpenAI's provider (`provider: "openai"`, `base_url` pointing at `rumik-bridge`), with the voice selected through the `model` field — Dograh's OpenAI TTS client only accepts a fixed set of OpenAI voice names in `voice`, but passes `model` straight through, so that's where a Rumik speaker + language preset travels. See the presets in `rumik_bridge.py` and `apps/agents/model_overrides.py::rumik_voice_model_for`.
 
-1. Copy `rumik_tts.py` into the Dograh API image.
-2. In the voice branch of the service factory, when the configured provider is `rumik`, return `build_rumik_tts(api_key=..., voice=...)`.
-3. Set `RUMIK_API_URL` to Rumik's streaming speech endpoint.
-
-Until that URL is confirmed for your account, leave campaigns on Sarvam.
+This supersedes the older plan (copying a patched TTS service into the Dograh image by hand); the bridge needs no changes inside Dograh at all.

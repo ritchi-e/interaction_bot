@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.agents.definition import build_workflow_definition
 from apps.agents.dograh_admin import DograhAdmin
+from apps.agents.model_overrides import build_model_overrides
 from apps.calls.dograh import DograhError
 from apps.campaigns.prompt_compiler import facts_block
 
@@ -42,7 +43,7 @@ def publish_agent(profile):
     organisation = campaign.organisation
     calling = getattr(organisation, "whatsapp_calling", None)
     if calling is None or not calling.webhook_token:
-        raise ValueError("WhatsApp calling is not set up for this business")
+        raise ValueError("This business has no Dograh webhook token yet")
     validate_spoken_lines(campaign, profile.greeting, profile.closing_line)
     base = settings.PUBLIC_BASE_URL.rstrip("/")
     definition = build_workflow_definition(
@@ -52,11 +53,14 @@ def publish_agent(profile):
     )
     keys = getattr(organisation, "provider_keys", None)
     admin = DograhAdmin(api_key=(keys.dograh_api_key if keys and keys.dograh_api_key else None))
+    workflow_configurations = build_model_overrides(campaign, keys)
     try:
         if profile.dograh_workflow_id:
-            result = admin.update_workflow(profile.dograh_workflow_id, campaign.name, definition)
+            result = admin.update_workflow(
+                profile.dograh_workflow_id, campaign.name, definition, workflow_configurations
+            )
         else:
-            result = admin.create_workflow(campaign.name, definition)
+            result = admin.create_workflow(campaign.name, definition, workflow_configurations)
     except DograhError as exc:
         profile.publish_error = str(exc)
         profile.save(update_fields=["publish_error", "updated_at"])

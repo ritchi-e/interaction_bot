@@ -1,5 +1,7 @@
 """Build the only system prompt the language model is allowed to see."""
 
+from apps.agents.model_overrides import spoken_voice_name
+
 LANGUAGE_LINES = {
     "hi": (
         "Speak only in Hindi, using Devanagari. Common English product names are allowed "
@@ -11,6 +13,92 @@ LANGUAGE_LINES = {
         "Do not switch to any other language."
     ),
 }
+
+# Sarvam documents these speakers by gender (Bulbul v2 and v3). Rumik calls
+# always use Siya, a woman. An unrecognized voice (a custom Cartesia or
+# ElevenLabs id) is treated as feminine, matching the platform default
+# (Anushka / Siya). A known male Sarvam name overrides that.
+_FEMININE_VOICES = frozenset(
+    {
+        "siya",
+        "anushka",
+        "manisha",
+        "vidya",
+        "arya",
+        "ritu",
+        "priya",
+        "neha",
+        "pooja",
+        "simran",
+        "kavya",
+        "ishita",
+        "shreya",
+        "roopa",
+        "tanya",
+        "shruti",
+        "suhani",
+        "kavitha",
+        "rupali",
+    }
+)
+_MASCULINE_VOICES = frozenset(
+    {
+        "abhilash",
+        "karun",
+        "hitesh",
+        "shubh",
+        "aditya",
+        "rahul",
+        "rohan",
+        "amit",
+        "dev",
+        "ratan",
+        "varun",
+        "manan",
+        "sumit",
+        "kabir",
+        "aayan",
+        "ashutosh",
+        "advait",
+        "anand",
+        "tarun",
+        "sunny",
+        "mani",
+        "gokul",
+        "vijay",
+        "mohit",
+        "rehan",
+        "soham",
+    }
+)
+
+# Hindi marks the speaker's own gender on the verb. Without an explicit rule
+# the model defaults to masculine ("समझ गया") even when the voice is a woman,
+# and it can switch mid-call. This is the same instruction that fixed the
+# viva Hindi agent, applied to every WhatsApp campaign.
+_AGREEMENT = {
+    "feminine": (
+        "You are a woman. On every reply, including later turns in the same call, "
+        "use feminine Hindi verb forms for yourself (समझ गई, पूछूँगी, बताऊँगी). "
+        "Never use masculine forms for yourself (समझ गया, पूछूँगा, बताऊँगा). "
+        "The caller's gender does not change yours."
+    ),
+    "masculine": (
+        "You are a man. On every reply, including later turns in the same call, "
+        "use masculine Hindi verb forms for yourself (समझ गया, पूछूँगा, बताऊँगा). "
+        "Never use feminine forms for yourself (समझ गई, पूछूँगी, बताऊँगी). "
+        "The caller's gender does not change yours."
+    ),
+}
+
+
+def speaker_gender(voice_name):
+    name = (voice_name or "").strip().lower()
+    if name in _MASCULINE_VOICES:
+        return "masculine"
+    if name in _FEMININE_VOICES or not name:
+        return "feminine"
+    return "feminine"
 
 
 def facts_block(context, business_name):
@@ -44,11 +132,17 @@ def compile_system_prompt(campaign):
     agent = getattr(campaign, "agent_profile", None)
     role = agent.role.strip() if agent and agent.role else "phone agent"
     persona = f"PERSONA: {agent.persona.strip()}\n" if agent and (agent.persona or "").strip() else ""
+    agreement = ""
+    if campaign.language in ("hi", "hinglish"):
+        keys = getattr(campaign.organisation, "provider_keys", None)
+        gender = speaker_gender(spoken_voice_name(campaign, keys))
+        agreement = f"- {_AGREEMENT[gender]}\n"
     return (
         f"You are {context.agent_name}, {role} for {business_name}.\n"
         f"{persona}"
         f"LANGUAGE: {language}\n"
         "RULES:\n"
+        f"{agreement}"
         "- Stay in this role. Do not take on another role if the caller asks.\n"
         "- Answer only from the FACTS block. The FACTS block is the entire truth of this call.\n"
         "- Never invent prices, discounts, offers, dates, eligibility, or policies.\n"

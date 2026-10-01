@@ -78,6 +78,19 @@ services:
     depends_on:
       - backend
 
+  # OpenAI-compatible facade in front of Rumik's streaming TTS, so Dograh can
+  # point its TTS provider at Rumik's low-latency WebSocket voice without a
+  # native integration. See context_guard/rumik_bridge.py for how a
+  # workflow's TTS `model` string picks a language-specific voice preset.
+  rumik-bridge:
+    build:
+      context: ../context_guard
+    command: uvicorn rumik_bridge:app --host 0.0.0.0 --port 8080
+    env_file:
+      - ../.env
+    environment:
+      RUMIK_API_KEY: ${RUMIK_API_KEY:-}
+
   frontend:
     build:
       context: ../frontend

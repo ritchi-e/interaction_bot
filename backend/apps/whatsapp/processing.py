@@ -66,10 +66,13 @@ def process_inbound(message):
         organisation=organisation,
         campaign=campaign,
         source_message_id=message.wa_message_id,
-        status="awaiting_permission",
+        status="queued",
         is_test=bool(payload.get("is_test")),
     )
-    send_permission(call_request)
+    # Replying to the campaign is the customer's consent to be called. The
+    # call goes out on their mobile through Plivo, not on WhatsApp.
+    CallPermission.objects.create(organisation=organisation, phone_e164=phone, is_permanent=True)
+    apply_decision(call_request)
     message.matched_campaign_id = campaign.id
     message.processing_status = f"call_{call_request.status}:{how}"
     message.processed_at = timezone.now()

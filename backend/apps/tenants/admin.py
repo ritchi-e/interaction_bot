@@ -2,7 +2,15 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 
-from apps.tenants.models import BusinessProfile, Organisation, ProviderKeys, User, WhatsAppCalling, WhatsAppConnection
+from apps.tenants.models import (
+    BusinessProfile,
+    Organisation,
+    PlivoLine,
+    ProviderKeys,
+    User,
+    WhatsAppCalling,
+    WhatsAppConnection,
+)
 
 
 class TenantUserCreationForm(UserCreationForm):
@@ -35,4 +43,5 @@ admin.site.register(Organisation)
 admin.site.register(BusinessProfile)
 admin.site.register(WhatsAppConnection)
 admin.site.register(WhatsAppCalling)
+admin.site.register(PlivoLine)
 admin.site.register(ProviderKeys)

@@ -3,6 +3,7 @@ from django.urls import path
 from apps.tenants.views import (
     LoginView,
     MeView,
+    PlivoSettingsView,
     ProfileSettingsView,
     ProviderSettingsView,
     RegisterView,
@@ -18,6 +19,7 @@ urlpatterns = [
     path("settings/whatsapp/", WhatsAppSettingsView.as_view(), name="settings-whatsapp"),
     path("settings/whatsapp-calling/", WhatsAppCallingSettingsView.as_view(), name="settings-whatsapp-calling"),
     path("settings/whatsapp-calling/enable/", WhatsAppCallingEnableView.as_view(), name="settings-whatsapp-calling-enable"),
+    path("settings/plivo/", PlivoSettingsView.as_view(), name="settings-plivo"),
     path("settings/providers/", ProviderSettingsView.as_view(), name="settings-providers"),
     path("settings/profile/", ProfileSettingsView.as_view(), name="settings-profile"),
 ]

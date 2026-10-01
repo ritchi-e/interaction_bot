@@ -9,7 +9,8 @@ from rest_framework.views import APIView
 
 from apps.calls.serializers import CallRequestSerializer
 from apps.calls.models import CallRequest, ContextViolation, Lead
-from apps.whatsapp.processing import send_permission
+from apps.calls.services import apply_decision
+from apps.compliance.models import CallPermission
 from apps.campaigns.models import Campaign, OutboundTemplateMessage
 from apps.campaigns.prompt_compiler import MINIMAL_DOGRAH_PROMPT, compile_system_prompt, facts_block
 from apps.campaigns.serializers import CampaignSerializer
@@ -66,7 +67,7 @@ class CampaignViewSet(viewsets.ModelViewSet):
         published = campaign.dograh_workflow_uuid or (agent and agent.dograh_workflow_uuid)
         if not published and not campaign.dograh_trigger_uuid:
             return Response(
-                {"detail": "Publish the agent before sending a call permission."},
+                {"detail": "Publish the agent before placing a call."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         lead, _created = Lead.objects.get_or_create(
@@ -79,9 +80,12 @@ class CampaignViewSet(viewsets.ModelViewSet):
             lead=lead,
             campaign=campaign,
             is_test=True,
-            status="awaiting_permission",
+            status="queued",
         )
-        send_permission(call_request)
+        CallPermission.objects.create(
+            organisation=campaign.organisation, phone_e164=phone, is_permanent=True
+        )
+        apply_decision(call_request)
         call_request.refresh_from_db()
         return Response(CallRequestSerializer(call_request).data, status=status.HTTP_201_CREATED)
 

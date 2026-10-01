@@ -1,0 +1,18 @@
+# Local-only port map for the viva tester, so Dograh's API does not take port 8000.
+# From the dograh checkout:
+#   docker compose -f docker-compose.yaml -f ../AI_Caller/viva/dograh.local.yml up -d
+services:
+  api:
+    ports: !override
+      - "8010:8000"
+  postgres:
+    ports: !override []
+  minio:
+    image: bitnamilegacy/minio:2024.12.18
+    command: ["/opt/bitnami/scripts/minio/run.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live || wget -q -O /dev/null http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+

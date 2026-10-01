@@ -25,12 +25,12 @@ def ready(db):
     org.whatsapp.access_token = "wa-token"
     org.whatsapp.app_secret = "app-secret"
     org.whatsapp.save()
-    calling = org.whatsapp_calling
-    calling.calling_enabled = True
-    calling.sip_enabled = True
-    calling.sip_password = "sip-secret"
-    calling.business_number_e164 = "+919800000000"
-    calling.save()
+    line = org.plivo
+    line.auth_id = "MA_TEST"
+    line.auth_token = "token"
+    line.caller_id = "+919800000000"
+    line.dograh_config_id = 1
+    line.save()
     campaign = Campaign.objects.create(
         organisation=org, name="Offer", is_default=True, dograh_workflow_uuid="workflow-1", language="en_in"
     )

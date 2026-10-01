@@ -9,6 +9,7 @@ from apps.campaigns.providers import dograh_model_configuration
 from apps.tenants.serializers import (
     BusinessProfileSerializer,
     LoginSerializer,
+    PlivoLineSerializer,
     ProviderKeysSerializer,
     RegisterSerializer,
     UserSerializer,
@@ -122,6 +123,24 @@ class WhatsAppCallingEnableView(APIView):
             calling.save(update_fields=["business_number_e164", "updated_at"])
         write_endpoints(WhatsAppCalling.objects.exclude(sip_password=""))
         return Response(WhatsAppCallingSerializer(calling).data)
+
+
+class PlivoSettingsView(_OrgRecordView):
+    serializer_class = PlivoLineSerializer
+    related_name = "plivo"
+
+    def put(self, request):
+        response = super().put(request)
+        if response.status_code >= 400:
+            return response
+        from apps.calls.plivo import sync_plivo_line
+
+        line = self._record(request)
+        try:
+            sync_plivo_line(line)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return self.get(request)
 
 
 class ProviderSettingsView(_OrgRecordView):

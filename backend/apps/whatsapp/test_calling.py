@@ -21,19 +21,19 @@ def _setup():
     org.whatsapp.access_token = "token"
     org.whatsapp.app_secret = "secret"
     org.whatsapp.save()
-    calling = org.whatsapp_calling
-    calling.calling_enabled = True
-    calling.sip_enabled = True
-    calling.sip_password = "sip-secret"
-    calling.business_number_e164 = "+919800000000"
-    calling.save()
+    line = org.plivo
+    line.auth_id = "MA_TEST"
+    line.auth_token = "token"
+    line.caller_id = "+919800000000"
+    line.dograh_config_id = 7
+    line.save()
     campaign = Campaign.objects.create(organisation=org, name="Offer", dograh_workflow_uuid="wf")
-    return org, campaign, calling
+    return org, campaign, line
 
 
 @pytest.mark.django_db
-def test_accept_dials_whatsapp_endpoint(monkeypatch):
-    org, campaign, calling = _setup()
+def test_accept_dials_the_mobile_through_plivo(monkeypatch):
+    org, campaign, _calling = _setup()
     seen = {}
 
     def fake(self, **kwargs):
@@ -58,7 +58,8 @@ def test_accept_dials_whatsapp_endpoint(monkeypatch):
     handle_permission_reply(message)
     call.refresh_from_db()
     assert call.status == "in_progress"
-    assert seen["phone_number"] == f"PJSIP/+919876543210@{calling.asterisk_endpoint}"
+    assert seen["phone_number"] == "+919876543210"
+    assert seen["telephony_configuration_id"] == "7"
 
 
 @pytest.mark.django_db

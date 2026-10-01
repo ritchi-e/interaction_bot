@@ -5,16 +5,16 @@ One machine, with a public IP. No GPU. Speech-to-text is Deepgram, the voice is 
 ```text
 Internet
   |  443 (dashboard and webhooks)
-  |  5061/TCP and RTP, only from Meta's SIP addresses
   v
 App VM
   Caddy, Django, Celery, Postgres, Redis, Next.js
-  Asterisk bridge to wa.meta.vc
+  Plivo  (outbound phone calls)
   context guard  (private, calls OpenAI)
+  rumik-bridge   (private, OpenAI-compatible facade over Rumik's streaming TTS)
   Dograh (its own compose, joined to the Docker network named "caller")
         |
-        +--> Deepgram, Sarvam, OpenAI
-        +--> WhatsApp calling
+        +--> Deepgram, Sarvam, Rumik (via rumik-bridge), OpenAI
+        +--> Plivo, WhatsApp messages
 ```
 
 `/internal/` on Django is not published by Caddy. The context guard calls Django at `http://backend:8000` on the Docker network.
@@ -39,7 +39,7 @@ docker compose -f deploy/docker-compose.yml up --build -d
 
 Caddy fetches a certificate for `APP_DOMAIN`.
 
-## 2. Dograh and Asterisk
+## 2. Dograh and Plivo
 
 From the Dograh checkout (`./scripts/fetch_dograh.sh`):
 
@@ -47,13 +47,17 @@ From the Dograh checkout (`./scripts/fetch_dograh.sh`):
 docker compose -f docker-compose.yaml -f ../AI_Caller/deploy/dograh.override.yml up -d
 ```
 
-The override puts Dograh on the `caller` network. Set the language model to OpenAI-compatible with base URL `http://context-guard:8080/v1` and model `gpt-4o-mini`. Speech-to-text is Deepgram Nova-3, language `multi`. Voice is Sarvam Bulbul.
+The override puts Dograh on the `caller` network. Run the base model configuration once instead of pasting JSON into Dograh's UI:
 
-Businesses publish the agent from the campaign page. The published workflow carries the greeting, the minimal prompt, and a webhook to `https://APP_DOMAIN/webhooks/dograh/<slug>/` with header `X-Dograh-Token`. Role and persona stay in the context guard prompt, not in Dograh.
+```bash
+docker compose -f deploy/docker-compose.yml exec backend python manage.py bootstrap_dograh
+```
 
-Telephony is Asterisk ARI, with dial string `PJSIP/{number}@<business-endpoint>`. Asterisk speaks TLS and Opus to `wa.meta.vc:5061` and μ-law to Dograh. Open 5061/TCP only to Meta's SIP ranges, plus the RTP range. Do not publish port 8080.
+This sets the language model to OpenAI-compatible with base URL `http://context-guard:8080/v1` and model `gpt-4o-mini`, speech-to-text to Deepgram Nova-3 (language `multi`), and voice to Sarvam Bulbul — the shared base every business's workflow starts from, since they all use the one platform Dograh API key. See `deploy/dograh-overrides/README.md`.
 
-In the dashboard, Setup, Calling, enable WhatsApp calling after the Cloud API number has a daily messaging limit of at least 2,000. A reply sends a call-permission request. The agent calls only after the customer taps Allow, and only between 09:00 and 21:00 IST. `STOP` opts the number out. Meta's limits are 2 permission requests per person in 7 days and 5 calls per person in 24 hours.
+Businesses publish the agent from the campaign page. The published workflow carries the greeting, the minimal prompt, a webhook to `https://APP_DOMAIN/webhooks/dograh/<slug>/` with header `X-Dograh-Token`, and per-campaign `workflow_configurations.model_overrides` — Deepgram STT pinned to the campaign's own language (`hi`/`en`/`multi`), and, if the campaign picked a TTS provider other than the shared default, a self-contained override for it (Rumik goes through the `rumik-bridge` service for low-latency streaming; see `apps/agents/model_overrides.py`). Role and persona stay in the context guard prompt, not in Dograh.
+
+Calls go out through Plivo. In Setup, Calling, save the Plivo Auth ID, Auth Token, and the caller ID. That writes a Plivo telephony configuration into Dograh and registers the caller ID. A WhatsApp reply is the customer's consent to be called. The agent then dials that mobile through Plivo, only between 09:00 and 21:00 IST. `STOP` opts the number out. The limit is 5 calls per person in 24 hours.
 
 ## 3. WhatsApp
 

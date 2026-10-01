@@ -98,12 +98,12 @@ def evaluate_call(call_request, moment=None):
             return Decision("reject", "permission_expired")
         return Decision("reject", "no_permission")
 
-    calling = getattr(call_request.organisation, "whatsapp_calling", None)
-    if calling is None or not calling.is_ready:
-        return Decision("reject", "whatsapp_calling_not_ready")
+    plivo = getattr(call_request.organisation, "plivo", None)
+    if plivo is None or not plivo.is_ready:
+        return Decision("reject", "plivo_not_ready")
 
     allowed, next_at = calling_window(moment)
     if not allowed:
         return Decision("schedule", "outside_calling_window", scheduled_for=next_at)
 
-    return Decision("dial", caller_id=calling.business_number_e164)
+    return Decision("dial", caller_id=plivo.caller_id)

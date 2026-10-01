@@ -20,11 +20,10 @@ export default function OnboardingPage() {
     access_token_masked: "",
   });
   const [calling, setCalling] = useState({
-    business_number_e164: "",
-    calling_enabled: false,
-    sip_enabled: false,
-    asterisk_endpoint: "",
-    permission_message: "",
+    auth_id: "",
+    auth_token: "",
+    auth_token_masked: "",
+    caller_id: "",
     is_ready: false,
   });
   const [providers, setProviders] = useState<Record<string, unknown>>({});
@@ -32,7 +31,7 @@ export default function OnboardingPage() {
   useEffect(() => {
     api<typeof profile>("/api/settings/profile/").then(setProfile).catch(() => {});
     api<typeof whatsapp>("/api/settings/whatsapp/").then(setWhatsapp).catch(() => {});
-    api<typeof calling>("/api/settings/whatsapp-calling/").then(setCalling).catch(() => {});
+    api<typeof calling>("/api/settings/plivo/").then(setCalling).catch(() => {});
     api<Record<string, unknown>>("/api/settings/providers/").then(setProviders).catch(() => {});
   }, []);
 
@@ -132,44 +131,46 @@ export default function OnboardingPage() {
       {step === 2 && (
         <Card>
           <p className="mb-3 text-sm text-ink/70">
-            Calls stay on WhatsApp. The customer has to tap Allow before the agent rings them. Meta only enables this on a
-            Cloud API number whose daily messaging limit is at least 2,000 unique people.
+            A WhatsApp reply starts the campaign. The agent then calls that mobile number through Plivo, between 09:00
+            and 21:00 IST. Paste the Auth ID and Auth Token from the Plivo console, and the Plivo number customers
+            should see as the caller ID.
           </p>
-          <p className="mb-3 text-sm">
-            Status: {calling.calling_enabled ? "calling on" : "calling off"}, {calling.sip_enabled ? "SIP on" : "SIP off"}
-            {calling.is_ready ? ", ready" : ""}. Endpoint {calling.asterisk_endpoint || "—"}.
-          </p>
+          <p className="mb-3 text-sm">Status: {calling.is_ready ? "ready to dial" : "not connected yet"}.</p>
           <form
             className="space-y-3"
             onSubmit={async (event: FormEvent) => {
               event.preventDefault();
               setMessage("");
               try {
-                await save("/api/settings/whatsapp-calling/", {
-                  business_number_e164: calling.business_number_e164,
-                  permission_message: calling.permission_message,
+                const saved = await api<typeof calling>("/api/settings/plivo/", {
+                  method: "PUT",
+                  body: JSON.stringify({
+                    auth_id: calling.auth_id,
+                    auth_token: calling.auth_token,
+                    caller_id: calling.caller_id,
+                  }),
                 });
-                const enabled = await api<typeof calling>("/api/settings/whatsapp-calling/enable/", {
-                  method: "POST",
-                  body: JSON.stringify({ business_number_e164: calling.business_number_e164 }),
-                });
-                setCalling(enabled);
-                setMessage("WhatsApp calling enabled.");
+                setCalling(saved);
+                setMessage("Plivo line saved.");
                 setStep(3);
               } catch (err) {
-                setMessage(err instanceof Error ? err.message : "Could not enable calling");
+                setMessage(err instanceof Error ? err.message : "Could not save Plivo");
               }
             }}
           >
             <div>
-              <Label>WhatsApp business number</Label>
-              <Input value={calling.business_number_e164} onChange={(e) => setCalling({ ...calling, business_number_e164: e.target.value })} placeholder="+919876543210" />
+              <Label>Plivo Auth ID</Label>
+              <Input value={calling.auth_id} onChange={(e) => setCalling({ ...calling, auth_id: e.target.value })} />
             </div>
             <div>
-              <Label>Default permission message</Label>
-              <Textarea value={calling.permission_message} onChange={(e) => setCalling({ ...calling, permission_message: e.target.value })} />
+              <Label>Auth Token {calling.auth_token_masked ? `(saved ${calling.auth_token_masked})` : ""}</Label>
+              <Input type="password" value={calling.auth_token} onChange={(e) => setCalling({ ...calling, auth_token: e.target.value })} placeholder="Leave blank to keep the saved token" />
             </div>
-            <Button type="submit">Enable WhatsApp calling</Button>
+            <div>
+              <Label>Caller ID</Label>
+              <Input value={calling.caller_id} onChange={(e) => setCalling({ ...calling, caller_id: e.target.value })} placeholder="+919800000000" />
+            </div>
+            <Button type="submit">Save Plivo line</Button>
           </form>
         </Card>
       )}

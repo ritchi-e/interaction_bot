@@ -34,12 +34,12 @@ def org(db):
     whatsapp.access_token = "wa-token"
     whatsapp.app_secret = "app-secret"
     whatsapp.save()
-    calling = user.organisation.whatsapp_calling
-    calling.calling_enabled = True
-    calling.sip_enabled = True
-    calling.sip_password = "sip-secret"
-    calling.business_number_e164 = "+919800000000"
-    calling.save()
+    line = user.organisation.plivo
+    line.auth_id = "MA_TEST"
+    line.auth_token = "token"
+    line.caller_id = "+919800000000"
+    line.dograh_config_id = 1
+    line.save()
     campaign = Campaign.objects.create(
         organisation=user.organisation,
         name="Loan offer",
@@ -119,7 +119,6 @@ def test_reply_places_one_call(client, org, monkeypatch):
         calls["kwargs"] = kwargs
         return {"run_id": "run-1", "raw": {"id": "run-1"}}
 
-    monkeypatch.setattr("apps.whatsapp.processing.send_call_permission_request", lambda *args, **kwargs: {})
     monkeypatch.setattr("apps.calls.dograh.DograhClient.initiate_call", fake_initiate)
     other = Campaign.objects.create(organisation=org, name="Festive", is_active=True)
     OutboundTemplateMessage.objects.create(campaign=other, wa_message_id="wamid.OUT.1", phone_e164="+919876543210")
@@ -134,9 +133,10 @@ def test_reply_places_one_call(client, org, monkeypatch):
     assert CallRequest.objects.count() == 1
     call = CallRequest.objects.get()
     assert call.campaign_id == other.id
-    assert call.status == "awaiting_permission"
+    assert call.status == "in_progress"
     assert call.lead.name == "Asha"
-    assert "kwargs" not in calls
+    assert calls["kwargs"]["phone_number"] == "+919876543210"
+    assert calls["kwargs"]["telephony_configuration_id"] == "1"
 
 
 @pytest.mark.django_db
@@ -144,7 +144,10 @@ def test_button_and_keyword_and_default(client, org, monkeypatch):
     monkeypatch.setattr(
         "apps.compliance.window.now_ist", lambda: datetime(2026, 9, 28, 11, 0, tzinfo=IST)
     )
-    monkeypatch.setattr("apps.whatsapp.processing.send_call_permission_request", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        "apps.calls.dograh.DograhClient.initiate_call",
+        lambda self, **kwargs: {"run_id": "run", "raw": {}},
+    )
     default = Campaign.objects.get(organisation=org, is_default=True)
     specific = Campaign.objects.create(organisation=org, name="Cards", dograh_workflow_uuid="wf-2")
 
@@ -169,12 +172,15 @@ def test_stop_opts_out_and_does_not_call(client, org, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_night_reply_asks_permission(client, org, monkeypatch):
+def test_night_reply_waits_for_the_calling_window(client, org, monkeypatch):
     monkeypatch.setattr(
         "apps.compliance.window.now_ist", lambda: datetime(2026, 9, 28, 22, 15, tzinfo=IST)
     )
-    monkeypatch.setattr("apps.whatsapp.processing.send_call_permission_request", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        "apps.calls.dograh.DograhClient.initiate_call",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("should wait")),
+    )
     response = _post(client, org, _payload(message_id="m-night", body="hello"))
     assert response.status_code == 200
     call = CallRequest.objects.get()
-    assert call.status == "awaiting_permission"
+    assert call.status == "pending_window"

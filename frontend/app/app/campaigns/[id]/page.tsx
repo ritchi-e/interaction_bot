@@ -105,7 +105,7 @@ export default function CampaignEditorPage() {
         method: "POST",
         body: JSON.stringify({ phone: testPhone }),
       });
-      setMessage(`Permission request is ${call.status}${call.skip_reason ? ` (${call.skip_reason})` : ""}.`);
+      setMessage(`Call is ${call.status}${call.skip_reason ? ` (${call.skip_reason})` : ""}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Test call failed");
     }
@@ -259,10 +259,10 @@ export default function CampaignEditorPage() {
         {prompt && <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-ink p-3 text-xs text-paper">{prompt}</pre>}
         <div className="flex flex-wrap items-end gap-2">
           <div>
-            <Label>Send call permission to my WhatsApp</Label>
+            <Label>Call this mobile through Plivo</Label>
             <Input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="9876543210" />
           </div>
-          <Button type="button" onClick={testCall}>Send permission request</Button>
+          <Button type="button" onClick={testCall}>Place test call</Button>
         </div>
       </Card>
     </form>
