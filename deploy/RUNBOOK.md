@@ -53,9 +53,9 @@ The override puts Dograh on the `caller` network. Run the base model configurati
 docker compose -f deploy/docker-compose.yml exec backend python manage.py bootstrap_dograh
 ```
 
-This sets the language model to OpenAI-compatible with base URL `http://context-guard:8080/v1` and model `gpt-4o-mini`, speech-to-text to Deepgram Nova-3 (language `multi`), and voice to Sarvam Bulbul — the shared base every business's workflow starts from, since they all use the one platform Dograh API key. See `deploy/dograh-overrides/README.md`.
+This sets the language model to OpenAI-compatible with base URL `http://context-guard:8080/v1` and model `gpt-4o-mini`, speech-to-text to Deepgram Nova-3 (language `multi`), and voice to Rumik through the Rumik bridge. Every business shares that one platform Dograh API key. See `deploy/dograh-overrides/README.md`.
 
-Businesses publish the agent from the campaign page. The published workflow carries the greeting, the minimal prompt, a webhook to `https://APP_DOMAIN/webhooks/dograh/<slug>/` with header `X-Dograh-Token`, and per-campaign `workflow_configurations.model_overrides` — Deepgram STT pinned to the campaign's own language (`hi`/`en`/`multi`), and, if the campaign picked a TTS provider other than the shared default, a self-contained override for it (Rumik goes through the `rumik-bridge` service for low-latency streaming; see `apps/agents/model_overrides.py`). Role and persona stay in the context guard prompt, not in Dograh.
+Businesses publish the agent from the campaign page. The published workflow carries the greeting, the minimal prompt, a webhook to `https://APP_DOMAIN/webhooks/dograh/<slug>/` with header `X-Dograh-Token`, and per-campaign `workflow_configurations.model_overrides` — Deepgram pinned to the campaign's own language (`hi`/`en`/`multi`), and Rumik with the voice that matches that language. Role and persona stay in the context guard prompt, not in Dograh.
 
 Calls go out through Plivo. In Setup, Calling, save the Plivo Auth ID, Auth Token, and the caller ID. That writes a Plivo telephony configuration into Dograh and registers the caller ID. A WhatsApp reply is the customer's consent to be called. The agent then dials that mobile through Plivo, only between 09:00 and 21:00 IST. `STOP` opts the number out. The limit is 5 calls per person in 24 hours.
 

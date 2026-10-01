@@ -16,7 +16,11 @@ HANDOFF_TOOL = {
     "type": "function",
     "function": {
         "name": "request_handoff",
-        "description": "Call this when the caller's question is not answered by the FACTS.",
+        "description": (
+            "Call this only when the caller's question cannot be answered from the facts "
+            "without inventing a price, date, product, or policy. Do not call this when the "
+            "offer, prices, or FAQs already cover the topic in different words."
+        ),
         "parameters": {
             "type": "object",
             "properties": {"reason": {"type": "string"}},
@@ -60,14 +64,73 @@ def prepare_messages(messages, prompt):
     return [{"role": "system", "content": prompt}, *rest]
 
 
-def force_sampling(body):
+DONE_RE = re.compile(
+    r"\b(that will be all|that'?s all|that is all|nothing else|no more questions|"
+    r"goodbye|good bye|bye|that'?s it|that is it)\b",
+    re.IGNORECASE,
+)
+
+
+WANT_RE = re.compile(
+    r"\b(yes|yeah|yep|sure|please|tell me|know more|more about|offer|sale|what|how|price|delivery|return)\b",
+    re.IGNORECASE,
+)
+
+
+def _last_user_text(messages):
+    last = ""
+    for message in messages or []:
+        if message.get("role") == "user":
+            last = message_text(message)
+    return last
+
+
+def caller_is_done(messages):
+    """The caller ended the conversation. A lone thank-you is not enough."""
+    return bool(DONE_RE.search(_last_user_text(messages)))
+
+
+def caller_wants_more(messages):
+    """They agreed to hear the offer or asked a question. Do not hang up."""
+    last = _last_user_text(messages)
+    if DONE_RE.search(last):
+        return False
+    return bool(WANT_RE.search(last))
+
+
+def without_end_call(body):
+    updated = dict(body)
+    kept = []
+    for tool in body.get("tools") or []:
+        name = ((tool.get("function") or {}).get("name")) or ""
+        if name == "done":
+            continue
+        kept.append(tool)
+    updated["tools"] = kept
+    return updated
+
+
+def closing_instruction(messages):
+    """The end-of-call node. Its prompt must be spoken, not replaced with the facts."""
+    for message in messages or []:
+        if message.get("role") != "system":
+            continue
+        text = message_text(message)
+        if "NODE_ROLE: closing" in text:
+            return text
+    return ""
+
+
+def force_sampling(body, include_handoff=True):
     requested = body.get("max_tokens") or MAX_TOKENS
     try:
         requested = int(requested)
     except (TypeError, ValueError):
         requested = MAX_TOKENS
     tools = list(body.get("tools") or [])
-    if not any((tool.get("function") or {}).get("name") == "request_handoff" for tool in tools):
+    if include_handoff and not any(
+        (tool.get("function") or {}).get("name") == "request_handoff" for tool in tools
+    ):
         tools.append(HANDOFF_TOOL)
     updated = dict(body)
     updated["temperature"] = 0.2

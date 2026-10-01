@@ -8,7 +8,7 @@ Dograh's OpenAI LLM provider accepts a custom base URL. Point it at the context 
 | Base URL | `http://context-guard:8080/v1` |
 | Model | `gpt-4o-mini` (or whatever `UPSTREAM_LLM_MODEL` is set to) |
 | Transcriber | Deepgram Nova-3, language `multi` (a campaign overrides this to `hi`/`en`/`multi` to match its own language) |
-| Voice | Sarvam Bulbul (`bulbul:v2`, voice `anushka`) by default; a campaign overrides this to Rumik, Cartesia, or ElevenLabs |
+| Voice | Rumik, through the Rumik bridge. The campaign language picks the voice (`rumik-siya-hindi`, `rumik-siya-english-indian`, or `rumik-siya-hinglish`) |
 | Telephony | Plivo. A WhatsApp reply starts the campaign; Dograh dials the mobile through Plivo |
 
 Run `python manage.py bootstrap_dograh` (from `backend/`) to PUT this base configuration once instead of pasting it into Dograh's UI by hand. Every business shares the same Dograh org (one platform API key), so this only needs to run once per environment, and again whenever the base defaults themselves change.
@@ -17,7 +17,7 @@ The agent node prompt must stay the minimal template from `MINIMAL_DOGRAH_PROMPT
 
 ## Per-campaign STT language and TTS voice
 
-Each `Campaign` has its own `language` (`hi` / `en_in` / `hinglish`) and, optionally, its own `tts_provider` / `tts_voice`. `backend/apps/agents/model_overrides.py` turns those into a `workflow_configurations.model_overrides` payload that `apps/agents/publish.py` sends every time an agent is published — on top of the shared base above, not replacing it. STT always gets an explicit language override (`hi`, `en`, or `multi`, matching Deepgram's own guidance that a single-language model beats `multi` when the audio isn't actually code-switched). TTS is only overridden when there's a fully self-contained provider + API key to send.
+Each `Campaign` has its own `language` (`hi` / `en_in` / `hinglish`). `backend/apps/agents/model_overrides.py` turns that into a `workflow_configurations.model_overrides` payload that `apps/agents/publish.py` sends every time an agent is published — on top of the shared base above, not replacing it. Speech-to-text always gets an explicit language override (`hi`, `en`, or `multi`). The voice is Rumik, chosen from that same language. Businesses do not pick a provider or paste keys.
 
 No keyterm dictionary is set here. That mechanism lives only in the local viva tester (`viva/setup_dograh_viva.py`), whose calls are about a fixed technical vocabulary. Real campaigns talk about a business's own offer, so there's nothing worth biasing every call toward.
 

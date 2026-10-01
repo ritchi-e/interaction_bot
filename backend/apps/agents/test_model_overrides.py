@@ -99,10 +99,9 @@ def test_no_tts_override_when_voice_provider_has_no_voice_picked():
 
 
 @pytest.mark.django_db
-def test_tts_falls_back_to_sarvam_default_when_provider_unset():
+def test_unset_provider_uses_rumik_for_the_campaign_language():
     campaign, keys = _campaign("hi")
-    keys.sarvam_api_key = "sarvam-secret"
-    keys.save()
     overrides = build_model_overrides(campaign, keys)
-    # No campaign or org tts_provider explicitly set: falls back to "sarvam".
-    assert overrides["model_overrides"]["tts"]["provider"] == "sarvam"
+    tts = overrides["model_overrides"]["tts"]
+    assert tts["provider"] == "openai"
+    assert tts["model"] == "rumik-siya-hindi"

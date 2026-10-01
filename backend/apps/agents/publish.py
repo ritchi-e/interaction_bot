@@ -12,10 +12,16 @@ from apps.campaigns.prompt_compiler import facts_block
 
 
 def _guard():
-    root = Path(__file__).resolve().parents[3]
-    guard_path = str(root / "context_guard")
-    if guard_path not in sys.path:
-        sys.path.insert(0, guard_path)
+    candidates = [Path("/opt/context_guard")]
+    candidates.extend(parent / "context_guard" for parent in Path(__file__).resolve().parents)
+    for path in candidates:
+        if (path / "guard.py").is_file():
+            folder = str(path)
+            if folder not in sys.path:
+                sys.path.insert(0, folder)
+            break
+    else:
+        raise RuntimeError("The context guard is not available to the backend")
     from guard import validate_sentence
 
     return validate_sentence
@@ -67,6 +73,9 @@ def publish_agent(profile):
         raise
     if result.get("id"):
         profile.dograh_workflow_id = int(result["id"])
+        workflow_uuid = admin.release_workflow(profile.dograh_workflow_id)
+        if workflow_uuid:
+            result["uuid"] = workflow_uuid
     if result.get("uuid"):
         profile.dograh_workflow_uuid = result["uuid"]
         campaign.dograh_workflow_uuid = result["uuid"]

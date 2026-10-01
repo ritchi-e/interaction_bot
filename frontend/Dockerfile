@@ -1,17 +1,21 @@
 FROM node:22-alpine AS build
-WORKDIR /app
+# Not /app. Next confuses the login page (app/page.tsx) with the
+# dashboard (app/app/page.tsx) when the project directory is named app.
+WORKDIR /frontend
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm install --include=dev
 COPY . .
 ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-RUN npm run build
+RUN node scripts/build-css.cjs \
+    && npm run build \
+    && grep -q 'href="/styles.css"' .next/server/app/index.html
 
 FROM node:22-alpine
-WORKDIR /app
+WORKDIR /frontend
 ENV NODE_ENV=production
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
+COPY --from=build /frontend/.next/standalone ./
+COPY --from=build /frontend/.next/static ./.next/static
+COPY --from=build /frontend/public ./public
 EXPOSE 3000
 CMD ["node", "server.js"]

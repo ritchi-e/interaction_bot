@@ -14,6 +14,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from guard import (
     SAFE_FALLBACK,
+    caller_is_done,
+    caller_wants_more,
+    closing_instruction,
+    without_end_call,
     extract_ids,
     force_sampling,
     guard_text,
@@ -144,13 +148,16 @@ async def chat_completions(request: Request):
             return StreamingResponse(fallback(), media_type="text/event-stream")
         return JSONResponse(completion(text, stream=False))
 
-    prompt = policy["prompt"]
-    rewritten = force_sampling(body)
+    closing = closing_instruction(messages)
+    prompt = closing or policy["prompt"]
+    rewritten = force_sampling(body, include_handoff=not closing)
     rewritten["messages"] = prepare_messages(messages, prompt)
     rewritten["model"] = MODEL_NAME
     rewritten.pop("metadata", None)
     rewritten.pop("campaign_id", None)
     rewritten.pop("call_request_id", None)
+    if caller_wants_more(messages) and not closing:
+        rewritten = without_end_call(rewritten)
 
     headers = {"Authorization": f"Bearer {UPSTREAM_KEY}"}
     facts = policy.get("facts") or ""
@@ -171,9 +178,19 @@ async def chat_completions(request: Request):
         payload["choices"][0]["message"] = message
         return JSONResponse(payload)
 
+    ending = caller_is_done(messages) and not closing
+
+    def mentions_done(delta):
+        for call in delta.get("tool_calls") or []:
+            name = ((call.get("function") or {}).get("name")) or ""
+            if name == "done":
+                return True
+        return False
+
     async def generate():
         buffer = ""
         blocked = False
+        saw_done = False
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST", f"{UPSTREAM}/chat/completions", json=rewritten, headers=headers
@@ -194,8 +211,10 @@ async def chat_completions(request: Request):
                         continue
                     delta = ((event.get("choices") or [{}])[0].get("delta")) or {}
                     if delta.get("tool_calls"):
+                        if mentions_done(delta):
+                            saw_done = True
                         yield chunk(tool_calls=delta["tool_calls"])
-                    if blocked:
+                    if ending or blocked:
                         continue
                     piece = delta.get("content") or ""
                     if not piece:
@@ -212,13 +231,24 @@ async def chat_completions(request: Request):
                     if blocked_now:
                         blocked = True
                         buffer = ""
-        if buffer.strip() and not blocked:
+        if buffer.strip() and not blocked and not ending:
             spoken, _rest, violations, _blocked = screen_piece(
                 buffer, facts, forbidden, competitors, handoff, flush=True
             )
             await record_violations(policy, call_request_id, violations)
             if spoken:
                 yield chunk(spoken)
+        if ending and not saw_done:
+            yield chunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "call_done",
+                        "type": "function",
+                        "function": {"name": "done", "arguments": "{}"},
+                    }
+                ]
+            )
         yield chunk(finish="stop")
         yield "data: [DONE]\n\n"
 

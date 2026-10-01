@@ -132,7 +132,7 @@ class ProviderKeys(TimeStampedModel):
         Organisation, on_delete=models.CASCADE, related_name="provider_keys"
     )
     deepgram_api_key = EncryptedTextField(blank=True)
-    tts_provider = models.CharField(max_length=32, choices=TTS_CHOICES, default="sarvam")
+    tts_provider = models.CharField(max_length=32, choices=TTS_CHOICES, default="rumik")
     tts_voice = models.CharField(max_length=80, blank=True, default="anushka")
     sarvam_api_key = EncryptedTextField(blank=True)
     rumik_api_key = EncryptedTextField(blank=True)

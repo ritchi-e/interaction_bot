@@ -8,10 +8,10 @@ overrides`` (see apps/agents/model_overrides.py and apps/agents/publish.py),
 computed and sent automatically every time an agent is published.
 
 This command only sets the shared base underneath those overrides: language
-model via the context guard, Deepgram STT, and Sarvam TTS as the platform
-default voice (unchanged from before; campaigns opt into Rumik, Cartesia, or
-ElevenLabs per-workflow instead). Run it once per environment, and again any
-time the base defaults change:
+model via the context guard, Deepgram STT, and Rumik TTS. A campaign's
+language picks the Rumik voice. Businesses do not choose a voice provider
+or paste keys. Run it once per environment, and again any time the base
+defaults change:
 
     python manage.py bootstrap_dograh
 """
@@ -51,11 +51,11 @@ class Command(BaseCommand):
                         "api_key": settings.DEEPGRAM_API_KEY,
                     },
                     "tts": {
-                        "provider": "sarvam",
-                        "model": "bulbul:v2",
-                        "voice": "anushka",
-                        "language": "hi-IN",
-                        "api_key": settings.SARVAM_API_KEY,
+                        "provider": "openai",
+                        "base_url": settings.RUMIK_BRIDGE_URL,
+                        "model": "rumik-siya-hindi",
+                        "voice": "alloy",
+                        "api_key": settings.RUMIK_API_KEY or "bridge",
                     },
                     "embeddings": {
                         "provider": "openai",

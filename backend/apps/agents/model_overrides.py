@@ -64,7 +64,7 @@ def selected_tts(campaign, keys=None):
     when this campaign ends up on that same provider.
     """
 
-    provider = campaign.tts_provider or (keys.tts_provider if keys else "") or "sarvam"
+    provider = campaign.tts_provider or (keys.tts_provider if keys else "") or "rumik"
     org_voice = keys.tts_voice if (keys and keys.tts_provider == provider) else ""
     voice = (campaign.tts_voice or org_voice or "").strip()
     return provider, voice

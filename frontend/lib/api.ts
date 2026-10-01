@@ -53,10 +53,14 @@ export type CallRow = {
 };
 
 function errorMessage(payload: unknown, fallback: string) {
-  if (!payload || typeof payload !== "object") return fallback;
-  const record = payload as Record<string, unknown>;
-  if (typeof record.detail === "string") return record.detail;
-  return fallback;
+  const lines: string[] = [];
+  const walk = (value: unknown) => {
+    if (typeof value === "string" && value) lines.push(value);
+    else if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === "object") Object.values(value).forEach(walk);
+  };
+  walk(payload);
+  return lines[0] ?? fallback;
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {

@@ -10,7 +10,7 @@ from django.conf import settings
 
 
 def dograh_model_configuration(keys):
-    tts_provider = keys.tts_provider or "sarvam"
+    tts_provider = keys.tts_provider or "rumik"
     tts_models = {
         "sarvam": {"provider": "sarvam", "model": "bulbul:v2", "voice": keys.tts_voice or "anushka"},
         "cartesia": {"provider": "cartesia", "model": "sonic", "voice": keys.tts_voice or ""},

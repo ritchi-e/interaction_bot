@@ -51,6 +51,7 @@ def test_publish_updates_existing_workflow(monkeypatch):
 
     monkeypatch.setattr("apps.agents.publish.DograhAdmin.update_workflow", update)
     monkeypatch.setattr("apps.agents.publish.DograhAdmin.create_workflow", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create")))
+    monkeypatch.setattr("apps.agents.publish.DograhAdmin.release_workflow", lambda self, workflow_id: "wf-uuid")
     publish_agent(profile)
     assert called["id"] == 7
     profile.refresh_from_db()

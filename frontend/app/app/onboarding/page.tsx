@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Button, Card, Input, Label, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 
-const STEPS = ["Business", "WhatsApp", "Calling", "Voice"] as const;
+const STEPS = ["Business", "WhatsApp", "Calling"] as const;
 
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
@@ -26,13 +26,11 @@ export default function OnboardingPage() {
     caller_id: "",
     is_ready: false,
   });
-  const [providers, setProviders] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
     api<typeof profile>("/api/settings/profile/").then(setProfile).catch(() => {});
     api<typeof whatsapp>("/api/settings/whatsapp/").then(setWhatsapp).catch(() => {});
     api<typeof calling>("/api/settings/plivo/").then(setCalling).catch(() => {});
-    api<Record<string, unknown>>("/api/settings/providers/").then(setProviders).catch(() => {});
   }, []);
 
   async function save(path: string, body: unknown) {
@@ -152,7 +150,6 @@ export default function OnboardingPage() {
                 });
                 setCalling(saved);
                 setMessage("Plivo line saved.");
-                setStep(3);
               } catch (err) {
                 setMessage(err instanceof Error ? err.message : "Could not save Plivo");
               }
@@ -172,62 +169,6 @@ export default function OnboardingPage() {
             </div>
             <Button type="submit">Save Plivo line</Button>
           </form>
-        </Card>
-      )}
-
-      {step === 3 && (
-        <Card className="space-y-4">
-          <form
-            className="space-y-3"
-            onSubmit={(event: FormEvent) => {
-              event.preventDefault();
-              save("/api/settings/providers/", {
-                tts_provider: providers.tts_provider || "sarvam",
-                tts_voice: providers.tts_voice || "anushka",
-                deepgram_api_key: providers.deepgram_api_key || "",
-                sarvam_api_key: providers.sarvam_api_key || "",
-                rumik_api_key: providers.rumik_api_key || "",
-                cartesia_api_key: providers.cartesia_api_key || "",
-                elevenlabs_api_key: providers.elevenlabs_api_key || "",
-                dograh_api_key: providers.dograh_api_key || "",
-              });
-            }}
-          >
-            <div>
-              <Label>Default voice</Label>
-              <select
-                className="h-10 w-full rounded-md border border-line bg-white px-3 text-sm"
-                value={String(providers.tts_provider || "sarvam")}
-                onChange={(e) => setProviders({ ...providers, tts_provider: e.target.value })}
-              >
-                <option value="sarvam">Sarvam Bulbul</option>
-                <option value="rumik">Rumik</option>
-                <option value="cartesia">Cartesia</option>
-                <option value="elevenlabs">ElevenLabs</option>
-              </select>
-            </div>
-            <div>
-              <Label>Voice name</Label>
-              <Input value={String(providers.tts_voice || "")} onChange={(e) => setProviders({ ...providers, tts_voice: e.target.value })} />
-            </div>
-            <div>
-              <Label>Deepgram key (optional, otherwise the platform key is used)</Label>
-              <Input type="password" value={String(providers.deepgram_api_key || "")} onChange={(e) => setProviders({ ...providers, deepgram_api_key: e.target.value })} />
-            </div>
-            <div>
-              <Label>Voice provider key</Label>
-              <Input type="password" value={String(providers.sarvam_api_key || "")} onChange={(e) => setProviders({ ...providers, sarvam_api_key: e.target.value })} />
-            </div>
-            <div>
-              <Label>Dograh API key for this business</Label>
-              <Input type="password" value={String(providers.dograh_api_key || "")} onChange={(e) => setProviders({ ...providers, dograh_api_key: e.target.value })} />
-            </div>
-            <Button type="submit">Save voice keys</Button>
-          </form>
-          <pre className="overflow-auto rounded-md bg-ink p-3 text-xs text-paper">
-            {JSON.stringify(providers.dograh_configuration || {}, null, 2)}
-          </pre>
-          <p className="text-sm text-ink/70">Paste this into Dograh under model configuration. The language model URL is the context guard.</p>
         </Card>
       )}
     </div>

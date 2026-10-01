@@ -30,6 +30,7 @@ export default function HomePage() {
 
   return (
     <main className="mx-auto grid min-h-screen max-w-5xl items-center gap-12 px-6 py-16 md:grid-cols-2">
+      <link rel="stylesheet" href="/styles.css" />
       <div>
         <p className="text-sm font-medium uppercase tracking-wide text-pine">WhatsApp replies, then a call</p>
         <h1 className="mt-3 font-serif text-5xl leading-tight">Talk to the people who answered your campaign.</h1>

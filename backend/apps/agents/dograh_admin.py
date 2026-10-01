@@ -22,6 +22,17 @@ class DograhAdmin(DograhClient):
             self._configure_workflow(workflow_id, workflow_configurations)
         return result
 
+    def release_workflow(self, workflow_id):
+        """Release the saved draft and return the public workflow uuid.
+
+        Dograh runs only a published version. The create response does not
+        include workflow_uuid; the fetch endpoint does.
+        """
+
+        fetched = self._request("GET", f"/api/v1/workflow/fetch/{workflow_id}")
+        self._request("POST", f"/api/v1/workflow/{workflow_id}/publish")
+        return str(fetched.get("workflow_uuid") or "")
+
     def _configure_workflow(self, workflow_id, workflow_configurations):
         # Dograh takes `workflow_configurations` (e.g. model_overrides for
         # per-campaign STT language / TTS voice) as its own PUT, separate
@@ -44,13 +55,13 @@ class DograhAdmin(DograhClient):
         if config_id:
             saved = self._request(
                 "PUT",
-                f"/api/v1/telephony-configs/{config_id}",
+                f"/api/v1/organizations/telephony-configs/{config_id}",
                 {"name": name, "config": config},
             )
         else:
             saved = self._request(
                 "POST",
-                "/api/v1/telephony-configs",
+                "/api/v1/organizations/telephony-configs",
                 {"name": name, "is_default_outbound": True, "config": config},
             )
         saved_id = saved.get("id") or config_id
@@ -58,7 +69,7 @@ class DograhAdmin(DograhClient):
             return {"config_id": saved_id, "phone_number_id": phone_number_id}
         number = self._request(
             "POST",
-            f"/api/v1/telephony-configs/{saved_id}/phone-numbers",
+            f"/api/v1/organizations/telephony-configs/{saved_id}/phone-numbers",
             {
                 "address": caller_id,
                 "country_code": "IN",
@@ -79,18 +90,25 @@ class DograhAdmin(DograhClient):
         """
         return self._request("PUT", "/api/v1/organizations/model-configurations/v2", config)
 
-    def _request(self, method, path, body):
+    def _request(self, method, path, body=None):
         if not self.api_key:
             raise DograhError("Dograh API key is not configured")
-        response = httpx.request(
-            method,
-            self.base_url + path,
-            json=body,
-            headers={"X-API-Key": self.api_key, "Content-Type": "application/json"},
-            timeout=30.0,
-        )
+        kwargs = {
+            "headers": {"X-API-Key": self.api_key, "Content-Type": "application/json"},
+            "timeout": 30.0,
+        }
+        if body is not None:
+            kwargs["json"] = body
+        response = httpx.request(method, self.base_url + path, **kwargs)
         if response.status_code >= 400:
-            raise DograhError("Dograh rejected the agent", response.status_code, response.text[:500])
+            detail = ""
+            try:
+                payload = response.json()
+                if isinstance(payload, dict) and isinstance(payload.get("detail"), str):
+                    detail = payload["detail"]
+            except ValueError:
+                detail = ""
+            raise DograhError(detail or "Dograh rejected the request", response.status_code, response.text[:500])
         return response.json() if response.content else {}
 
     def _json(self, method, path, body):

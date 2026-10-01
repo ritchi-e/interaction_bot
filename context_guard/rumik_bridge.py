@@ -311,19 +311,31 @@ async def speech(request: Request):
 
     pool = request.app.state.pool
     started = time.perf_counter()
-    for attempt in range(2):
-        try:
-            sock, first = await _start_stream(pool, text, preset)
-            log.info(
-                "rumik first audio %.0fms (%d chars, %s)",
-                (time.perf_counter() - started) * 1000,
-                len(text),
-                preset["speaker"],
-            )
-            return StreamingResponse(_stream(pool, sock, first, started, text), media_type="audio/pcm")
-        except Exception as exc:
-            log.warning("rumik stream attempt %d failed: %s", attempt + 1, exc)
 
-    pcm = await _http_fallback(request.app.state.client, text, preset)
-    log.info("rumik http fallback %.0fms (%d chars)", (time.perf_counter() - started) * 1000, len(text))
-    return Response(content=pcm, media_type="audio/pcm")
+    async def body():
+        # Start the response at once. Waiting here for Rumik's first sound made
+        # the call close the greeting before any audio arrived.
+        yield b"\x00" * 4800
+        last_error = None
+        for attempt in range(2):
+            try:
+                sock, first = await _start_stream(pool, text, preset)
+                log.info(
+                    "rumik first audio %.0fms (%d chars, %s)",
+                    (time.perf_counter() - started) * 1000,
+                    len(text),
+                    preset["speaker"],
+                )
+                async for chunk in _stream(pool, sock, first, started, text):
+                    yield chunk
+                return
+            except Exception as exc:
+                last_error = exc
+                log.warning("rumik stream attempt %d failed: %s", attempt + 1, exc)
+        pcm = await _http_fallback(request.app.state.client, text, preset)
+        log.info("rumik http fallback %.0fms (%d chars)", (time.perf_counter() - started) * 1000, len(text))
+        if last_error:
+            log.warning("served the voice from the http fallback after %s", last_error)
+        yield pcm
+
+    return StreamingResponse(body(), media_type="audio/pcm")
