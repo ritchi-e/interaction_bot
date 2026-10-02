@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -122,6 +122,78 @@ def test_dograh_webhook_sends_handoff_text(ready, monkeypatch):
     assert sent["to"] == "+919876543210"
     assert "follow up" in sent["body"].lower()
     assert call.handoff_alerts.exists()
+
+
+@pytest.mark.django_db
+def test_dograh_webhook_stores_call_log(ready):
+    user, org, campaign = ready
+    from apps.calls.models import Lead
+
+    lead = Lead.objects.create(organisation=org, phone_e164="+919876543210", campaign=campaign, name="Asha")
+    call = CallRequest.objects.create(organisation=org, lead=lead, campaign=campaign, status="in_progress")
+    call.attempts.create(dograh_run_id="run-9", status="in_progress")
+
+    body = json.dumps(
+        {
+            "run_id": "run-9",
+            "status": "completed",
+            "call_time": "2026-10-02T09:15:00+00:00",
+            "duration_seconds": "74",
+            "end_reason": "user_hangup",
+            "disposition": "interested",
+            "initial_context": {"call_request_id": str(call.id)},
+        }
+    ).encode()
+    signature = hmac.new(b"test-dograh-secret", body, hashlib.sha256).hexdigest()
+    client = APIClient()
+    response = client.post(
+        f"/webhooks/dograh/{org.slug}/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_DOGRAH_SIGNATURE=signature,
+        HTTP_X_DOGRAH_TOKEN=org.whatsapp_calling.webhook_token,
+    )
+    assert response.status_code == 200
+    attempt = call.attempts.get()
+    assert attempt.started_at == datetime(2026, 10, 2, 9, 15, tzinfo=dt_timezone.utc)
+    assert attempt.duration_seconds == 74
+    assert attempt.ended_by == "caller"
+    assert attempt.end_reason == "user_hangup"
+    assert attempt.ended_at == datetime(2026, 10, 2, 9, 16, 14, tzinfo=dt_timezone.utc)
+
+
+@pytest.mark.django_db
+def test_dograh_webhook_records_agent_hangup(ready):
+    user, org, campaign = ready
+    from apps.calls.models import Lead
+
+    lead = Lead.objects.create(organisation=org, phone_e164="+919876543210", campaign=campaign, name="Asha")
+    call = CallRequest.objects.create(organisation=org, lead=lead, campaign=campaign, status="in_progress")
+    call.attempts.create(dograh_run_id="run-10", status="in_progress")
+
+    body = json.dumps(
+        {
+            "run_id": "run-10",
+            "status": "completed",
+            "gathered_context": {"call_status": "end_call", "call_disposition": "completed"},
+            "cost_info": {"call_duration_seconds": 30},
+            "initial_context": {"call_request_id": str(call.id)},
+        }
+    ).encode()
+    signature = hmac.new(b"test-dograh-secret", body, hashlib.sha256).hexdigest()
+    client = APIClient()
+    response = client.post(
+        f"/webhooks/dograh/{org.slug}/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_DOGRAH_SIGNATURE=signature,
+        HTTP_X_DOGRAH_TOKEN=org.whatsapp_calling.webhook_token,
+    )
+    assert response.status_code == 200
+    attempt = call.attempts.get()
+    assert attempt.ended_by == "agent"
+    assert attempt.end_reason == "end_call"
+    assert attempt.duration_seconds == 30
 
 
 @pytest.mark.django_db

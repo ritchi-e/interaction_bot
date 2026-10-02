@@ -27,6 +27,11 @@ def test_definition_has_one_start_and_minimal_prompt():
     assert len(starts) == 1
     agent = next(node for node in definition["nodes"] if node["type"] == "agentNode")
     assert agent["data"]["prompt"] == MINIMAL_DOGRAH_PROMPT
+    webhook = next(node for node in definition["nodes"] if node["type"] == "webhook")
+    payload = webhook["data"]["payload_template"]
+    assert payload["call_time"] == "{{call_time}}"
+    assert payload["duration_seconds"] == "{{cost_info.call_duration_seconds}}"
+    assert payload["end_reason"] == "{{gathered_context.call_status}}"
 
 
 @pytest.mark.django_db

@@ -83,7 +83,7 @@ def place_dograh_call(call_request):
     client = DograhClient(api_key=api_key or None)
     call_request.status = "dialing"
     call_request.save(update_fields=["status", "updated_at"])
-    attempt = call_request.attempts.create(status="dialing")
+    attempt = call_request.attempts.create(status="dialing", started_at=timezone.now())
     try:
         result = client.initiate_call(
             phone_number=lead.phone_e164,

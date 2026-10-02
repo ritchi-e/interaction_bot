@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Card } from "@/components/ui";
 import { api, type CallRow } from "@/lib/api";
+import { endedByLabel, formatDuration } from "@/lib/calls";
 
 export default function CallDetailPage() {
   const params = useParams<{ id: string }>();
@@ -28,6 +29,13 @@ export default function CallDetailPage() {
       </div>
       {call.attempts.map((attempt) => (
         <Card key={attempt.id}>
+          <p className="text-sm text-ink/60">
+            {attempt.started_at ? new Date(attempt.started_at).toLocaleString("en-IN") : "Start time not recorded"}
+            {" · "}
+            {formatDuration(attempt.duration_seconds)}
+            {" · "}
+            {endedByLabel(attempt)}
+          </p>
           <p className="text-sm text-ink/60">Run {attempt.dograh_run_id || "—"}</p>
           <pre className="mt-2 whitespace-pre-wrap text-sm">{attempt.transcript || "No transcript yet."}</pre>
           {attempt.recording_url && (

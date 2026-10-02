@@ -53,12 +53,21 @@ class CallRequest(TimeStampedModel):
 
 
 class CallAttempt(TimeStampedModel):
+    ENDED_BY_CHOICES = [
+        ("agent", "Agent hung up"),
+        ("caller", "Caller hung up"),
+    ]
+
     call_request = models.ForeignKey(CallRequest, on_delete=models.CASCADE, related_name="attempts")
     dograh_run_id = models.CharField(max_length=128, blank=True, db_index=True)
     status = models.CharField(max_length=32, default="dialing")
     transcript = models.TextField(blank=True)
     recording_url = models.CharField(max_length=500, blank=True)
     error = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    ended_by = models.CharField(max_length=16, choices=ENDED_BY_CHOICES, blank=True)
+    end_reason = models.CharField(max_length=80, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
 

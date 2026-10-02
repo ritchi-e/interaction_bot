@@ -61,6 +61,10 @@ def build_workflow_definition(profile, *, webhook_url, webhook_token):
                     "payload_template": {
                         "run_id": "{{workflow_run_id}}",
                         "status": "completed",
+                        "call_time": "{{call_time}}",
+                        "duration_seconds": "{{cost_info.call_duration_seconds}}",
+                        "end_reason": "{{gathered_context.call_status}}",
+                        "disposition": "{{gathered_context.call_disposition}}",
                         "transcript_url": "{{transcript_url}}",
                         "recording_url": "{{recording_url}}",
                         "initial_context": "{{initial_context}}",

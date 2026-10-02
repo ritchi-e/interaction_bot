@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, rows, type CallRow } from "@/lib/api";
+import { endedByLabel, formatDuration, latestAttempt } from "@/lib/calls";
 
 export default function CallsPage() {
   const [calls, setCalls] = useState<CallRow[]>([]);
@@ -22,6 +23,8 @@ export default function CallsPage() {
               <th className="px-4 py-2 font-medium">When</th>
               <th className="px-4 py-2 font-medium">Person</th>
               <th className="px-4 py-2 font-medium">Campaign</th>
+              <th className="px-4 py-2 font-medium">Length</th>
+              <th className="px-4 py-2 font-medium">Hung up by</th>
               <th className="px-4 py-2 font-medium">Status</th>
             </tr>
           </thead>
@@ -35,6 +38,8 @@ export default function CallsPage() {
                   </Link>
                 </td>
                 <td className="px-4 py-2">{call.campaign_name}</td>
+                <td className="px-4 py-2">{formatDuration(latestAttempt(call.attempts)?.duration_seconds)}</td>
+                <td className="px-4 py-2">{endedByLabel(latestAttempt(call.attempts))}</td>
                 <td className="px-4 py-2">
                   {call.status}
                   {call.skip_reason ? ` · ${call.skip_reason}` : ""}
@@ -44,7 +49,7 @@ export default function CallsPage() {
             ))}
             {calls.length === 0 && (
               <tr>
-                <td className="px-4 py-6 text-ink/50" colSpan={4}>No calls yet.</td>
+                <td className="px-4 py-6 text-ink/50" colSpan={6}>No calls yet.</td>
               </tr>
             )}
           </tbody>

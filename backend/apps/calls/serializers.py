@@ -6,7 +6,20 @@ from apps.calls.models import CallAttempt, CallRequest, ContextViolation, Handof
 class CallAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = CallAttempt
-        fields = ["id", "dograh_run_id", "status", "transcript", "recording_url", "error", "created_at", "ended_at"]
+        fields = [
+            "id",
+            "dograh_run_id",
+            "status",
+            "transcript",
+            "recording_url",
+            "error",
+            "started_at",
+            "duration_seconds",
+            "ended_by",
+            "end_reason",
+            "created_at",
+            "ended_at",
+        ]
 
 
 class ContextViolationSerializer(serializers.ModelSerializer):

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -60,11 +61,24 @@ class DograhWebhookView(APIView):
             attempt.transcript = parsed["transcript"]
         if parsed["recording_url"]:
             attempt.recording_url = parsed["recording_url"]
+        if parsed["started_at"]:
+            attempt.started_at = parsed["started_at"]
+        if parsed["duration_seconds"] is not None:
+            attempt.duration_seconds = parsed["duration_seconds"]
+        if parsed["end_reason"]:
+            attempt.end_reason = parsed["end_reason"]
+        if parsed["ended_by"]:
+            attempt.ended_by = parsed["ended_by"]
         if parsed["status"]:
             attempt.status = parsed["status"]
             call_request.status = parsed["status"] if parsed["status"] != "dialing" else call_request.status
         if parsed["status"] in ("completed", "failed"):
-            attempt.ended_at = timezone.now()
+            if attempt.started_at and attempt.duration_seconds is not None:
+                attempt.ended_at = attempt.started_at + timedelta(seconds=attempt.duration_seconds)
+            elif attempt.ended_at is None:
+                attempt.ended_at = timezone.now()
+                if attempt.started_at and attempt.duration_seconds is None:
+                    attempt.duration_seconds = max(0, int((attempt.ended_at - attempt.started_at).total_seconds()))
         attempt.save()
         if parsed["disposition"]:
             call_request.disposition = parsed["disposition"]

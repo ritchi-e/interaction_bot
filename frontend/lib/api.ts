@@ -48,6 +48,11 @@ export type CallRow = {
     transcript: string;
     recording_url: string;
     error: string;
+    started_at: string | null;
+    duration_seconds: number | null;
+    ended_by: "" | "agent" | "caller";
+    end_reason: string;
+    ended_at: string | null;
   }[];
   violations: { id: number; sentence: string; reason: string; created_at: string }[];
 };
