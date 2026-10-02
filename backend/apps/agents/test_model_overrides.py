@@ -20,13 +20,23 @@ def _campaign(language, tts_provider="", tts_voice=""):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "language,stt_language",
-    [("hi", "multi"), ("en_in", "multi"), ("hinglish", "multi")],
+    [("en_in", "multi"), ("hinglish", "multi")],
 )
 def test_stt_language_follows_campaign_language(language, stt_language):
     campaign, keys = _campaign(language)
     overrides = build_model_overrides(campaign, keys)
     assert overrides["model_overrides"]["stt"]["provider"] == "deepgram"
     assert overrides["model_overrides"]["stt"]["language"] == stt_language
+    assert "model" not in overrides["model_overrides"]["stt"]
+
+
+@pytest.mark.django_db
+def test_hindi_listens_with_flux_so_deepgram_ends_the_turn():
+    campaign, keys = _campaign("hi")
+    stt = build_model_overrides(campaign, keys)["model_overrides"]["stt"]
+    assert stt["provider"] == "deepgram"
+    assert stt["model"] == "flux-general-multi"
+    assert stt["language"] == "hi"
 
 
 @pytest.mark.django_db

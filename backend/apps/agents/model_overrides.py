@@ -98,7 +98,19 @@ def _tenant_or_platform_key(keys, provider):
 
 def _stt_override(campaign, keys):
     api_key = (keys.deepgram_api_key if keys else "") or settings.DEEPGRAM_API_KEY
-    override = {"provider": "deepgram", "language": stt_language_for(campaign.language)}
+    if campaign.language == "hi":
+        # Flux reports the end of the turn itself. Dograh then stops waiting on
+        # its own silence timer. language "hi" is only a hint: the model is the
+        # multilingual one, so an English word inside Hindi is still transcribed.
+        override = {
+            "provider": "deepgram",
+            "model": "flux-general-multi",
+            "language": "hi",
+        }
+    else:
+        # This Dograh build fixes Nova endpointing at 100ms inside its speech
+        # service. A campaign override cannot change that number.
+        override = {"provider": "deepgram", "language": stt_language_for(campaign.language)}
     if api_key:
         override["api_key"] = api_key
     return override

@@ -5,6 +5,25 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { api, type User } from "@/lib/api";
 
+function Account({
+  user,
+  onLogout,
+  className,
+}: {
+  user: User | null;
+  onLogout: () => void;
+  className: string;
+}) {
+  return (
+    <div className={`items-center gap-3 text-sm ${className}`}>
+      <span className="text-ink/60">{user?.organisation_name}</span>
+      <button type="button" onClick={onLogout} className="shrink-0 text-ink/70 underline-offset-2 hover:underline">
+        Log out
+      </button>
+    </div>
+  );
+}
+
 const LINKS = [
   { href: "/app", label: "Home" },
   { href: "/app/onboarding", label: "Setup" },
@@ -26,6 +45,11 @@ export function Shell({ children }: { children: ReactNode }) {
     api<User>("/api/auth/me/").then(setUser).catch(() => router.replace("/"));
   }, [router]);
 
+  function logout() {
+    localStorage.removeItem("token");
+    router.replace("/");
+  }
+
   return (
     <div className="min-h-screen">
       <link rel="stylesheet" href="/styles.css" />
@@ -35,7 +59,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <Link href="/app" className="font-serif text-xl">
               Caller
             </Link>
-            <div className="text-sm text-ink/60 sm:hidden">{user?.organisation_name}</div>
+            <Account user={user} onLogout={logout} className="flex sm:hidden" />
           </div>
           <nav className="flex gap-4 overflow-x-auto text-sm">
             {LINKS.map((link) => (
@@ -48,7 +72,7 @@ export function Shell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <div className="hidden text-sm text-ink/60 sm:block">{user?.organisation_name}</div>
+          <Account user={user} onLogout={logout} className="hidden sm:flex" />
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>

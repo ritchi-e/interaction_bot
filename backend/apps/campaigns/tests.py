@@ -29,7 +29,8 @@ def test_prompt_contains_only_given_facts():
     assert "No joining fee." in prompt
     assert "Never invent a price" in prompt
     assert "यह जानकारी मेरे पास नहीं है।" in prompt
-    assert "Speak only in Hindi" in prompt
+    assert "Speak Hindi in Devanagari" in prompt
+    assert "जी, बिल्कुल।" in prompt
     assert "90%" not in prompt
     assert "EasyCredit" not in prompt
 

@@ -7,6 +7,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.agents.model_overrides import rumik_voice_model_for
 from apps.calls.serializers import CallRequestSerializer
 from apps.calls.models import CallRequest, ContextViolation, Lead
 from apps.calls.services import apply_decision
@@ -132,6 +133,7 @@ class InternalCampaignContextView(APIView):
                 "handoff_message": context.handoff_message,
                 "forbidden_topics": context.forbidden_topics or [],
                 "competitors": context.competitors or [],
+                "voice_model": rumik_voice_model_for(campaign.language),
             }
         )
 

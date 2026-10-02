@@ -83,6 +83,7 @@ services:
       UPSTREAM_LLM_BASE_URL: ${UPSTREAM_LLM_BASE_URL:-https://api.openai.com/v1}
       UPSTREAM_LLM_MODEL: ${UPSTREAM_LLM_MODEL:-gpt-4o-mini}
       BACKEND_INTERNAL_URL: http://backend:8000
+      RUMIK_BRIDGE_URL: http://rumik-bridge:8080/v1
     depends_on:
       - backend
 

@@ -25,6 +25,7 @@ from guard import (
     guard_text,
     is_farewell,
     prepare_messages,
+    split_sentences,
     take_complete,
     validate_sentence,
 )
@@ -36,6 +37,7 @@ UPSTREAM_KEY = os.environ.get("UPSTREAM_LLM_API_KEY", "")
 BACKEND = os.environ.get("BACKEND_INTERNAL_URL", "http://127.0.0.1:8000").rstrip("/")
 INTERNAL_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
 MODEL_NAME = os.environ.get("UPSTREAM_LLM_MODEL", "gpt-4o-mini")
+RUMIK_BRIDGE = os.environ.get("RUMIK_BRIDGE_URL", "http://rumik-bridge:8080/v1").rstrip("/")
 
 
 @app.get("/health")
@@ -227,6 +229,26 @@ async def chat_completions(request: Request):
         return JSONResponse(payload)
 
     ending = caller_is_done(messages) and not closing
+    voice_model = policy.get("voice_model") or ""
+
+    async def start_voice(text):
+        """Synthesise a finished sentence before Dograh asks for it.
+
+        The socket that is already speaking stays busy. This takes another
+        warm socket, so the next line is ready while the current one plays.
+        """
+        for sentence in split_sentences(text) or []:
+            line = " ".join(sentence.split())
+            if not line or not voice_model:
+                continue
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    await client.post(
+                        f"{RUMIK_BRIDGE}/audio/prewarm",
+                        json={"input": line, "model": voice_model},
+                    )
+            except httpx.HTTPError:
+                return
 
     async def generate():
         buffer = ""
@@ -287,6 +309,7 @@ async def chat_completions(request: Request):
                         signing_off = signing_off or signed
                         frame = speak(spoken)
                         if frame:
+                            await start_voice(spoken)
                             yield frame
                     if violations:
                         await record_violations(policy, call_request_id, violations)
@@ -303,8 +326,10 @@ async def chat_completions(request: Request):
                 signing_off = signing_off or signed
                 frame = speak(spoken)
                 if frame:
+                    await start_voice(spoken)
                     yield frame
         if handed_off and not spoke and not blocked and not ending and not signing_off:
+            await start_voice(handoff)
             yield chunk(handoff)
         if (ending or signing_off) and not saw_done:
             yield chunk(

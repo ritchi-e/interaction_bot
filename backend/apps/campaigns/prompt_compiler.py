@@ -140,6 +140,12 @@ def compile_system_prompt(campaign):
         keys = getattr(campaign.organisation, "provider_keys", None)
         gender = speaker_gender(spoken_voice_name(campaign, keys))
         agreement = f"- {_AGREEMENT[gender]}\n"
+    lead = ""
+    if campaign.language == "hi":
+        lead = (
+            "- Begin every reply with one finished sentence of two to four words, "
+            "such as जी, बिल्कुल। or समझ गई। The answer is the next sentence, not this one.\n"
+        )
     return (
         f"You are {context.agent_name}, {role} for {business_name}.\n"
         f"{persona}"
@@ -165,7 +171,8 @@ def compile_system_prompt(campaign):
         "- Say the handoff line verbatim, and call the request_handoff function, only when the answer "
         "would require a fact that is not in FACTS, or the question is outside the allowed topics. "
         "A question on an allowed topic is not a handoff just because it is not copied from an FAQ.\n"
-        "- Say one short sentence, then stop and let them speak. Do not chain several sentences.\n"
+        "- After any short opening words, add at most one sentence with the answer, then stop.\n"
+        f"{lead}"
         "- If they interrupt, or the line goes quiet, do not say the greeting again and do not "
         "start the offer from the beginning. Continue from the last thing you already said.\n"
         "- When they are finished, say that will be all, say goodbye, or clearly want to stop, call the "
