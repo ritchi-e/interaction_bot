@@ -44,8 +44,8 @@ def dograh_model_configuration(keys):
             "platform_key_set": bool(settings.DEEPGRAM_API_KEY),
             "note": (
                 "This is the org-level default. Each campaign's published "
-                "workflow overrides the language (hi/en/multi) to match its "
-                "own Campaign.language; see apps/agents/model_overrides.py."
+                "workflow also pins language to multi, so Hindi and English words "
+                "are both recognised; see apps/agents/model_overrides.py."
             ),
         },
         "tts": tts_models.get(tts_provider, tts_models["sarvam"]),

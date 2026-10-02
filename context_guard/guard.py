@@ -235,6 +235,11 @@ def split_sentences(text):
 
 
 def take_complete(buffer):
+    """Release only finished sentences.
+
+    Mulberry speaks one complete utterance at a time. Cutting a line into
+    pieces makes English words inside Hindi come out separately and unclear.
+    """
     complete = []
     rest = buffer
     while rest:

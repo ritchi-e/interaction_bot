@@ -23,19 +23,20 @@ happens to be configured with, so that inheritance cannot be relied on.
 
 from django.conf import settings
 
-# Deepgram's own guidance: a dedicated single-language model is more accurate
-# than "multi" when the audio is not actually code-switched. "multi" is kept
-# only for the language a campaign explicitly expects to mix.
-_STT_LANGUAGE = {
-    "hi": "hi",
-    "en_in": "en",
-    "hinglish": "multi",
-}
+# Callers mix languages even when the campaign is Hindi or English: a Hindi
+# call often ends with "thank you", and an English call still has Hindi words.
+# Deepgram "multi" is the code-switching model, which is what the Hinglish
+# campaigns already used. Pinning Hindi to "hi" dropped those English words.
+def stt_language_for(campaign_language):
+    return "multi"
 
-# Matches the presets in context_guard/rumik_bridge.py. Each named voice
-# carries a Rumik description tuned for that language's delivery.
+
+# Matches the presets in context_guard/rumik_bridge.py. Hindi uses the
+# Hinglish delivery so English words inside a Hindi sentence (a sale name,
+# "thank you") are spoken as English instead of being forced through Hindi
+# phonetics. Indian English stays on its own preset.
 _RUMIK_VOICE_MODEL = {
-    "hi": "rumik-siya-hindi",
+    "hi": "rumik-siya-hinglish",
     "en_in": "rumik-siya-english-indian",
     "hinglish": "rumik-siya-hinglish",
 }
@@ -49,12 +50,8 @@ _SARVAM_LANGUAGE = {
 }
 
 
-def stt_language_for(campaign_language):
-    return _STT_LANGUAGE.get(campaign_language, "multi")
-
-
 def rumik_voice_model_for(campaign_language):
-    return _RUMIK_VOICE_MODEL.get(campaign_language, "rumik-siya-hindi")
+    return _RUMIK_VOICE_MODEL.get(campaign_language, "rumik-siya-hinglish")
 
 
 def selected_tts(campaign, keys=None):

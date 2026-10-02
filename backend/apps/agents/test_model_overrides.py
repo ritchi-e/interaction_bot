@@ -20,7 +20,7 @@ def _campaign(language, tts_provider="", tts_voice=""):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "language,stt_language",
-    [("hi", "hi"), ("en_in", "en"), ("hinglish", "multi")],
+    [("hi", "multi"), ("en_in", "multi"), ("hinglish", "multi")],
 )
 def test_stt_language_follows_campaign_language(language, stt_language):
     campaign, keys = _campaign(language)
@@ -41,7 +41,7 @@ def test_no_dictionary_is_ever_sent():
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "language,model",
-    [("hi", "rumik-siya-hindi"), ("en_in", "rumik-siya-english-indian"), ("hinglish", "rumik-siya-hinglish")],
+    [("hi", "rumik-siya-hinglish"), ("en_in", "rumik-siya-english-indian"), ("hinglish", "rumik-siya-hinglish")],
 )
 def test_rumik_voice_preset_follows_campaign_language(language, model):
     campaign, keys = _campaign(language, tts_provider="rumik")
@@ -104,4 +104,4 @@ def test_unset_provider_uses_rumik_for_the_campaign_language():
     overrides = build_model_overrides(campaign, keys)
     tts = overrides["model_overrides"]["tts"]
     assert tts["provider"] == "openai"
-    assert tts["model"] == "rumik-siya-hindi"
+    assert tts["model"] == "rumik-siya-hinglish"

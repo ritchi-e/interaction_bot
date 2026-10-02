@@ -56,11 +56,11 @@ def test_publish_updates_existing_workflow(monkeypatch):
     assert called["id"] == 7
     profile.refresh_from_db()
     assert profile.dograh_workflow_uuid == "wf-uuid"
-    # The Hindi campaign in _campaign() gets Deepgram STT pinned to "hi" and
-    # no keyterm dictionary (unlike the viva script's per-workflow overrides).
+    # Every campaign listens in Deepgram's code-switching model, so a Hindi
+    # call still catches an English "thank you".
     overrides = called["workflow_configurations"]["model_overrides"]
     assert overrides["stt"]["provider"] == "deepgram"
-    assert overrides["stt"]["language"] == "hi"
+    assert overrides["stt"]["language"] == "multi"
     assert "dictionary" not in called["workflow_configurations"]
 
 

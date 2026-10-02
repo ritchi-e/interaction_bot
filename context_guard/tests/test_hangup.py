@@ -1,4 +1,4 @@
-from guard import caller_is_done, caller_wants_more, closing_line, is_farewell
+from guard import caller_is_done, caller_wants_more, closing_line, is_farewell, take_complete
 
 
 def _user(text):
@@ -23,6 +23,12 @@ def test_interest_does_not_end_the_call():
     assert not caller_is_done(_user("हाँ, ऑफर के बारे में बताइए"))
     assert caller_wants_more(_user("yes tell me about the offer"))
     assert not caller_is_done(_user("yes tell me about the offer"))
+
+
+def test_an_unfinished_phrase_waits_for_the_sentence_to_end():
+    spoken, rest = take_complete("one two three four five six seven eight")
+    assert spoken == []
+    assert rest == "one two three four five six seven eight"
 
 
 def test_closing_line_is_a_farewell_and_can_be_read_back():

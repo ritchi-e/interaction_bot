@@ -59,39 +59,30 @@ PREWARM_MAX = int(os.environ.get("RUMIK_PREWARM_MAX", "64"))
 # RUMIK_TTS_DEFAULT_SPEAKER in the environment to change who is heard.
 SPEAKER = (os.environ.get("RUMIK_TTS_DEFAULT_SPEAKER") or "siya").strip() or "siya"
 
+# Mulberry builds the voice from one sentence with a few attributes. A longer
+# list of instructions is ignored, which is why English words inside Hindi came
+# out blurred. This is the documented customer-support line that pronounces
+# Hindi in Devanagari and English in Latin in the same sentence.
+CODEMIX_DESCRIPTION = (
+    "a female 30s hindi voice, normal pitch, warm timbre, conversational pacing, "
+    "neutral register, like a customer support agent."
+)
+ENGLISH_DESCRIPTION = (
+    "a female 30s indian voice, normal pitch, warm timbre, conversational pacing, "
+    "neutral register, like a customer support agent."
+)
+
 # Keyed by the `model` string a Dograh workflow's TTS override sends. Falls
 # back to DEFAULT_PRESET for a bare "gpt-4o-mini-tts" request (no override set)
 # or for any unrecognized name, so old workflows keep working unchanged.
 DEFAULT_PRESET = {
     "speaker": SPEAKER,
-    "description": os.environ.get(
-        "RUMIK_TTS_DESCRIPTION",
-        "a warm Indian woman, clear Hindi and English, short pauses, calm voice",
-    ),
+    "description": os.environ.get("RUMIK_TTS_DESCRIPTION", CODEMIX_DESCRIPTION),
 }
 PRESETS = {
-    "rumik-siya-hindi": {
-        "speaker": SPEAKER,
-        "description": (
-            "a warm Indian woman speaking Hindi, clear Hindi accent, natural Hindi "
-            "prosody, short pauses, calm feminine voice"
-        ),
-    },
-    "rumik-siya-english-indian": {
-        "speaker": SPEAKER,
-        "description": (
-            "a warm Indian woman speaking Indian English, clear Indian English "
-            "accent, short pauses, calm voice"
-        ),
-    },
-    "rumik-siya-hinglish": {
-        "speaker": SPEAKER,
-        "description": (
-            "a warm Indian woman speaking Hinglish, moving naturally between Hindi "
-            "and English words within the same sentence, clear Indian accent, "
-            "short pauses, calm voice"
-        ),
-    },
+    "rumik-siya-hindi": {"speaker": SPEAKER, "description": CODEMIX_DESCRIPTION},
+    "rumik-siya-english-indian": {"speaker": SPEAKER, "description": ENGLISH_DESCRIPTION},
+    "rumik-siya-hinglish": {"speaker": SPEAKER, "description": CODEMIX_DESCRIPTION},
 }
 
 

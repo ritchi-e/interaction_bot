@@ -4,12 +4,14 @@ from apps.agents.model_overrides import spoken_voice_name
 
 LANGUAGE_LINES = {
     "hi": (
-        "Speak only in Hindi, using Devanagari. Common English product names are allowed "
-        "when the caller uses them."
+        "Speak Hindi in Devanagari, and write every English word in Latin letters "
+        "inside the same sentence. Example: चुनिंदा कपड़ों पर End of Season sale चल रही है। "
+        "Never rewrite English words into Devanagari."
     ),
     "en_in": "Speak only in Indian English.",
     "hinglish": (
-        "Speak in Hinglish: natural Hindi in Devanagari mixed with the English words the caller uses. "
+        "Speak Hindi in Devanagari with English words in Latin letters in the same sentence. "
+        "Example: चुनिंदा कपड़ों पर End of Season sale चल रही है। "
         "Do not switch to any other language."
     ),
 }
@@ -163,8 +165,9 @@ def compile_system_prompt(campaign):
         "- Say the handoff line verbatim, and call the request_handoff function, only when the answer "
         "would require a fact that is not in FACTS, or the question is outside the allowed topics. "
         "A question on an allowed topic is not a handoff just because it is not copied from an FAQ.\n"
-        "- Keep every reply short and conversational, one or two sentences, suitable for being spoken aloud. "
-        "Natural and short beats complete and long.\n"
+        "- Say one short sentence, then stop and let them speak. Do not chain several sentences.\n"
+        "- If they interrupt, or the line goes quiet, do not say the greeting again and do not "
+        "start the offer from the beginning. Continue from the last thing you already said.\n"
         "- When they are finished, say that will be all, say goodbye, or clearly want to stop, call the "
         "function named done and say nothing else in that reply. Do not say the goodbye yourself. "
         "A later step says the closing line once and hangs up. Saying it yourself makes it play twice "
