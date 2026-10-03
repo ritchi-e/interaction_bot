@@ -1,6 +1,18 @@
-# App machine. From the repo root:
+# GPU app machine. From the repo root:
 #   cp .env.example .env
-#   docker compose -f deploy/docker-compose.yml up --build
+#   docker compose -f deploy/docker-compose.yml run --rm speech-models
+#   docker compose -f deploy/docker-compose.yml up --build -d
+#
+# Requires NVIDIA driver + nvidia-container-toolkit on the host.
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
 
 services:
   postgres:
@@ -31,11 +43,19 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caller}
       REDIS_URL: redis://redis:6379/0
       DJANGO_DEBUG: "0"
+      SPEECH_STT_URL: ${SPEECH_STT_URL:-http://speech-stt:8000}
+      SPEECH_TTS_URL: ${SPEECH_TTS_URL:-http://speech-tts:8000/v1}
+      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
+      SPEECH_VOICE_NAME: ${SPEECH_VOICE_NAME:-siya}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+      speech-stt:
+        condition: service_healthy
+      speech-tts:
+        condition: service_healthy
 
   celery:
     build:
@@ -48,6 +68,9 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caller}
       REDIS_URL: redis://redis:6379/0
+      SPEECH_STT_URL: ${SPEECH_STT_URL:-http://speech-stt:8000}
+      SPEECH_TTS_URL: ${SPEECH_TTS_URL:-http://speech-tts:8000/v1}
+      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
     depends_on:
       - backend
       - redis
@@ -83,23 +106,81 @@ services:
       UPSTREAM_LLM_BASE_URL: ${UPSTREAM_LLM_BASE_URL:-https://api.openai.com/v1}
       UPSTREAM_LLM_MODEL: ${UPSTREAM_LLM_MODEL:-gpt-4o-mini}
       BACKEND_INTERNAL_URL: http://backend:8000
-      RUMIK_BRIDGE_URL: http://rumik-bridge:8080/v1
+      SPEECH_TTS_URL: ${SPEECH_TTS_URL:-http://speech-tts:8000/v1}
+      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
     depends_on:
       - backend
+      - speech-tts
 
-  # OpenAI-compatible facade in front of Rumik's streaming TTS, so Dograh can
-  # point its TTS provider at Rumik's low-latency WebSocket voice without a
-  # native integration. See context_guard/rumik_bridge.py for how a
-  # workflow's TTS `model` string picks a language-specific voice preset.
-  rumik-bridge:
+  # One-shot: download Nemotron STT + dhee-indic-f5 + smart-turn into the
+  # shared volume. Re-run after wiping the volume or changing model ids.
+  speech-models:
     build:
-      context: ../context_guard
-    command: uvicorn rumik_bridge:app --host 0.0.0.0 --port 8080
-    env_file:
-      - ../.env
-    # RUMIK_API_KEY comes from env_file above; see the comment on
-    # context-guard's environment block for why it must not be re-declared
-    # here as `${RUMIK_API_KEY:-}`.
+      context: ../speech
+      dockerfile: models/Dockerfile.export
+    environment:
+      MODELS_DIR: /models
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      SKIP_NEMOTRON_EXPORT: "1"
+    volumes:
+      - speech-models:/models
+    profiles: ["models"]
+
+  speech-stt:
+    <<: *gpu
+    gpus: all
+    build:
+      context: ../speech/stt
+    environment:
+      MODELS_DIR: /models
+      STT_MODEL_DIR: /models/stt/nemotron
+      SMART_TURN_PATH: /models/stt/smart-turn/smart-turn-v3-gpu.onnx
+      SHERPA_PROVIDER: ${SHERPA_PROVIDER:-cuda}
+      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
+    volumes:
+      - speech-models:/models:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  speech-tts:
+    <<: *gpu
+    gpus: all
+    build:
+      context: ../speech/tts
+    environment:
+      MODELS_DIR: /models
+      TTS_MODEL_DIR: /models/tts/dhee-indic-f5
+      TTS_VOICES_DIR: /models/tts/voices
+      TTS_DEVICE: cuda
+      TTS_NFE: ${TTS_NFE:-16}
+      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
+      HF_HOME: /models/hf-cache
+      DHEE_HF_ID: ${DHEE_HF_ID:-dheeyantra/dhee-indic-f5}
+    volumes:
+      - speech-models:/models
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 15
+      start_period: 240s
 
   frontend:
     build:
@@ -144,3 +225,4 @@ volumes:
   pgdata:
   caddy-data:
   asterisk-config:
+  speech-models:

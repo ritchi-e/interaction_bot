@@ -1,0 +1,36 @@
+{
+  "voices": [
+    {
+      "id": "selfhost-hi-female",
+      "label": "Hindi · Female",
+      "ref_audio": "hi_female.wav",
+      "ref_text_file": "hi_female.txt",
+      "language": "hi",
+      "gender": "female"
+    },
+    {
+      "id": "selfhost-hi-male",
+      "label": "Hindi · Male",
+      "ref_audio": "hi_male.wav",
+      "ref_text_file": "hi_male.txt",
+      "language": "hi",
+      "gender": "male"
+    },
+    {
+      "id": "selfhost-en-female",
+      "label": "Indian English · Female",
+      "ref_audio": "en_female.wav",
+      "ref_text_file": "en_female.txt",
+      "language": "en",
+      "gender": "female"
+    },
+    {
+      "id": "selfhost-en-male",
+      "label": "Indian English · Male",
+      "ref_audio": "en_male.wav",
+      "ref_text_file": "en_male.txt",
+      "language": "en",
+      "gender": "male"
+    }
+  ]
+}

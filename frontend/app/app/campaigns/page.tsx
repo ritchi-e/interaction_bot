@@ -8,7 +8,7 @@ import { api, rows, type Campaign } from "@/lib/api";
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [name, setName] = useState("");
-  const [language, setLanguage] = useState("hinglish");
+  const [language, setLanguage] = useState("hi");
   const [error, setError] = useState("");
 
   function load() {
@@ -48,7 +48,6 @@ export default function CampaignsPage() {
             <select className="h-10 rounded-md border border-line bg-white px-3 text-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="hi">Hindi</option>
               <option value="en_in">Indian English</option>
-              <option value="hinglish">Hinglish</option>
             </select>
           </div>
           <Button type="submit">Create</Button>

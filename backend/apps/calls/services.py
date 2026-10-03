@@ -2,25 +2,24 @@ from django.utils import timezone
 
 import httpx
 
-from apps.agents.model_overrides import rumik_bridge_target
+from apps.agents.model_overrides import tts_prewarm_target
 from apps.calls.dograh import DograhClient, DograhError
 from apps.compliance.checks import evaluate_call
 
 
 def _prewarm_greeting(campaign, keys, text):
-    """Ask the Rumik bridge to start synthesizing the greeting right away.
+    """Ask speech-tts to start synthesizing the greeting right away.
 
     Fired just before we dial, so the voice is already rendered by the time
     Plivo finishes ringing and Dograh actually asks for it (see
-    context_guard/rumik_bridge.py's /v1/audio/prewarm). Best-effort only: any
-    failure here just means the call falls back to the normal on-demand path,
-    with no change in behaviour.
+    speech/tts/server.py's /v1/audio/prewarm). Best-effort only: any failure
+    here just means the call falls back to the normal on-demand path.
     """
 
     text = (text or "").strip()
     if not text:
         return
-    target = rumik_bridge_target(campaign, keys)
+    target = tts_prewarm_target(campaign, keys)
     if not target:
         return
     base_url, model = target

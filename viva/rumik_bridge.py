@@ -15,10 +15,9 @@ description travel in the per-message payload on an already-open socket, so
 one warm pool of connections serves every preset — no need to reconnect or
 run a separate bridge per language or per business.
 
-This one process is deployed twice: as a local terminal command for the viva
-tester (see viva/setup_dograh_viva.py), and as the `rumik-bridge` service
-in deploy/docker-compose.yml for the production calling system (see
-backend/apps/agents/model_overrides.py for how a campaign picks a preset).
+Production now uses self-hosted speech-tts (dhee-indic-f5). This bridge is
+kept only for the local viva tester (see viva/setup_dograh_viva.py and
+viva/README.md).
 """
 
 import asyncio

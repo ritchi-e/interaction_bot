@@ -1,0 +1,22 @@
+# One-shot job: populate the shared speech-models volume.
+# Build context must be the speech/ directory (see deploy/docker-compose.yml).
+FROM python:3.11-slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bzip2 curl ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY models/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY models/fetch_models.py models/export_nemotron.sh ./
+COPY data_for_voice /app/data_for_voice
+COPY tts/voices /app/voices
+RUN chmod +x export_nemotron.sh
+
+ENV MODELS_DIR=/models
+ENV SKIP_NEMOTRON_EXPORT=1
+VOLUME ["/models"]
+
+CMD ["python", "fetch_models.py"]

@@ -37,7 +37,11 @@ UPSTREAM_KEY = os.environ.get("UPSTREAM_LLM_API_KEY", "")
 BACKEND = os.environ.get("BACKEND_INTERNAL_URL", "http://127.0.0.1:8000").rstrip("/")
 INTERNAL_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
 MODEL_NAME = os.environ.get("UPSTREAM_LLM_MODEL", "gpt-4o-mini")
-RUMIK_BRIDGE = os.environ.get("RUMIK_BRIDGE_URL", "http://rumik-bridge:8080/v1").rstrip("/")
+SPEECH_TTS = (
+    os.environ.get("SPEECH_TTS_URL")
+    or os.environ.get("RUMIK_BRIDGE_URL")
+    or "http://speech-tts:8000/v1"
+).rstrip("/")
 
 
 @app.get("/health")
@@ -244,7 +248,7 @@ async def chat_completions(request: Request):
             try:
                 async with httpx.AsyncClient(timeout=2.0) as client:
                     await client.post(
-                        f"{RUMIK_BRIDGE}/audio/prewarm",
+                        f"{SPEECH_TTS}/audio/prewarm",
                         json={"input": line, "model": voice_model},
                     )
             except httpx.HTTPError:

@@ -1,7 +1,7 @@
 """Create a Dograh account and two viva agents: one English, one Hindi.
 
 Both agents share one org-level model configuration (OpenAI LLM, Deepgram
-STT, Rumik through context_guard/rumik_bridge.py on port 8090). Each workflow
+STT, Rumik through viva/rumik_bridge.py on port 8090). Each workflow
 then overrides just the STT language and the TTS voice preset it needs:
 
 - English: Deepgram STT pinned to "en" (a dedicated single-language model is

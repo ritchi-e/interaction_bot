@@ -43,7 +43,7 @@ def org(db):
     campaign = Campaign.objects.create(
         organisation=user.organisation,
         name="Loan offer",
-        language="hinglish",
+        language="hi",
         is_default=True,
         dograh_workflow_uuid="workflow-1",
     )

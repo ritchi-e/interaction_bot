@@ -9,19 +9,13 @@ LANGUAGE_LINES = {
         "Never rewrite English words into Devanagari."
     ),
     "en_in": "Speak only in Indian English.",
-    "hinglish": (
-        "Speak Hindi in Devanagari with English words in Latin letters in the same sentence. "
-        "Example: चुनिंदा कपड़ों पर End of Season sale चल रही है। "
-        "Do not switch to any other language."
-    ),
 }
 
-# Sarvam documents these speakers by gender (Bulbul v2 and v3). Rumik calls
-# always use Siya, a woman. An unrecognized voice (a custom Cartesia or
-# ElevenLabs id) is treated as feminine, matching the platform default
-# (Anushka / Siya). A known male Sarvam name overrides that.
+# Self-hosted system voices use female/male. Legacy cloud speaker names are
+# still recognised so older rows keep the right Hindi verb gender.
 _FEMININE_VOICES = frozenset(
     {
+        "female",
         "siya",
         "zoya",
         "anushka",
@@ -46,6 +40,7 @@ _FEMININE_VOICES = frozenset(
 )
 _MASCULINE_VOICES = frozenset(
     {
+        "male",
         "abhilash",
         "karun",
         "hitesh",
@@ -131,12 +126,12 @@ def compile_system_prompt(campaign):
     profile = getattr(business, "profile", None)
     business_name = profile.display_name if profile and profile.display_name else business.name
     facts = facts_block(context, business_name)
-    language = LANGUAGE_LINES.get(campaign.language, LANGUAGE_LINES["hinglish"])
+    language = LANGUAGE_LINES.get(campaign.language, LANGUAGE_LINES["hi"])
     agent = getattr(campaign, "agent_profile", None)
     role = agent.role.strip() if agent and agent.role else "phone agent"
     persona = f"PERSONA: {agent.persona.strip()}\n" if agent and (agent.persona or "").strip() else ""
     agreement = ""
-    if campaign.language in ("hi", "hinglish"):
+    if campaign.language == "hi":
         keys = getattr(campaign.organisation, "provider_keys", None)
         gender = speaker_gender(spoken_voice_name(campaign, keys))
         agreement = f"- {_AGREEMENT[gender]}\n"

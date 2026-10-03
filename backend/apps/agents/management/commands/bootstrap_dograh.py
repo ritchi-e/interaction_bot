@@ -2,16 +2,14 @@
 
 Every business currently authenticates with the same platform Dograh API
 key (settings.DOGRAH_API_KEY), so they all share one Dograh org and one base
-model configuration. Each campaign's own STT language and TTS voice/provider
-still differ — those travel per-workflow as ``workflow_configurations.model_
+model configuration. Each campaign's own STT language and TTS voice still
+differ — those travel per-workflow as ``workflow_configurations.model_
 overrides`` (see apps/agents/model_overrides.py and apps/agents/publish.py),
 computed and sent automatically every time an agent is published.
 
 This command only sets the shared base underneath those overrides: language
-model via the context guard, Deepgram STT, and Rumik TTS. A campaign's
-language picks the Rumik voice. Businesses do not choose a voice provider
-or paste keys. Run it once per environment, and again any time the base
-defaults change:
+model via the context guard, self-hosted STT (Deepgram Flux protocol against
+speech-stt), and self-hosted TTS (OpenAI speech API against speech-tts).
 
     python manage.py bootstrap_dograh
 """
@@ -32,6 +30,7 @@ class Command(BaseCommand):
         if not settings.DOGRAH_API_KEY:
             raise CommandError("DOGRAH_API_KEY is not set")
 
+        token = (settings.SPEECH_API_TOKEN or "local").strip() or "local"
         config = {
             "version": 2,
             "mode": "byok",
@@ -46,16 +45,17 @@ class Command(BaseCommand):
                     },
                     "stt": {
                         "provider": "deepgram",
-                        "model": "nova-3",
-                        "language": "multi",
-                        "api_key": settings.DEEPGRAM_API_KEY,
+                        "model": "flux-general-multi",
+                        "language": "hi",
+                        "base_url": settings.SPEECH_STT_URL,
+                        "api_key": token,
                     },
                     "tts": {
                         "provider": "openai",
-                        "base_url": settings.RUMIK_BRIDGE_URL,
-                        "model": "rumik-siya-hindi",
+                        "base_url": settings.SPEECH_TTS_URL,
+                        "model": "selfhost-hi-female",
                         "voice": "alloy",
-                        "api_key": settings.RUMIK_API_KEY or "bridge",
+                        "api_key": token,
                     },
                     "embeddings": {
                         "provider": "openai",

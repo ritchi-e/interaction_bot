@@ -1,7 +1,7 @@
 """What to paste into Dograh's model configuration for this deployment.
 
-Speech-to-text, text-to-speech, and the language model are all hosted APIs.
-Dograh reaches the language model only through the context guard.
+Speech-to-text and text-to-speech are self-hosted on the GPU. Dograh reaches
+the language model only through the context guard.
 """
 
 import os
@@ -10,23 +10,7 @@ from django.conf import settings
 
 
 def dograh_model_configuration(keys):
-    tts_provider = keys.tts_provider or "rumik"
-    tts_models = {
-        "sarvam": {"provider": "sarvam", "model": "bulbul:v2", "voice": keys.tts_voice or "anushka"},
-        "cartesia": {"provider": "cartesia", "model": "sonic", "voice": keys.tts_voice or ""},
-        "elevenlabs": {"provider": "elevenlabs", "model": "eleven_flash_v2_5", "voice": keys.tts_voice or ""},
-        "rumik": {
-            "provider": "openai",
-            "base_url": settings.RUMIK_BRIDGE_URL,
-            "model": "rumik-siya-hindi",
-            "note": (
-                "Routed through the rumik-bridge service, an OpenAI-compatible "
-                "facade in front of Rumik's streaming voice (low first-audio "
-                "latency). `model` picks a language preset per campaign; see "
-                "apps/agents/model_overrides.py."
-            ),
-        },
-    }
+    token = (settings.SPEECH_API_TOKEN or "local").strip() or "local"
     return {
         "llm": {
             "provider": "openai",
@@ -37,17 +21,26 @@ def dograh_model_configuration(keys):
         },
         "stt": {
             "provider": "deepgram",
-            "model": "nova-3",
-            "language": "multi",
-            "endpointing_ms": 300,
-            "key_source": "tenant" if keys.deepgram_api_key else "platform",
-            "platform_key_set": bool(settings.DEEPGRAM_API_KEY),
+            "model": "flux-general-multi",
+            "language": "hi",
+            "base_url": settings.SPEECH_STT_URL,
+            "api_key": token,
             "note": (
-                "This is the org-level default. Each campaign's published "
-                "workflow also pins language to multi, so Hindi and English words "
-                "are both recognised; see apps/agents/model_overrides.py."
+                "Self-hosted speech-stt (Nemotron Hinglish) speaking the "
+                "Deepgram Flux protocol. Campaign overrides pin language "
+                "hints; see apps/agents/model_overrides.py."
             ),
         },
-        "tts": tts_models.get(tts_provider, tts_models["sarvam"]),
+        "tts": {
+            "provider": "openai",
+            "base_url": settings.SPEECH_TTS_URL,
+            "model": "selfhost-hi-female",
+            "voice": "alloy",
+            "api_key": token,
+            "note": (
+                "Self-hosted speech-tts (dhee-indic-f5) with system voices "
+                "(Hindi/English × female/male). See apps/agents/model_overrides.py."
+            ),
+        },
         "telephony": {"provider": "plivo", "caller_id_format": "+91XXXXXXXXXX"},
     }

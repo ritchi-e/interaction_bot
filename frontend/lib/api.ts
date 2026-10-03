@@ -9,14 +9,14 @@ export type User = {
 export type Campaign = {
   id: string;
   name: string;
-  language: "hi" | "en_in" | "hinglish";
+  language: "hi" | "en_in";
   is_default: boolean;
   is_active: boolean;
   dograh_workflow_uuid: string;
   dograh_trigger_uuid: string;
   permission_message: string;
   tts_provider: string;
-  tts_voice: string;
+  tts_voice: "female" | "male" | string;
   agent_name: string;
   goal: string;
   offer_details: string;

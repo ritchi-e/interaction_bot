@@ -10,7 +10,12 @@ class Campaign(TimeStampedModel):
     LANGUAGE_CHOICES = [
         ("hi", "Hindi"),
         ("en_in", "Indian English"),
-        ("hinglish", "Hinglish"),
+    ]
+    # Self-hosted system voices: Indian-accent female / male. Language comes
+    # from ``language``; Hindi already includes English loanwords in speech.
+    VOICE_CHOICES = [
+        ("female", "Female"),
+        ("male", "Male"),
     ]
     TTS_CHOICES = [
         ("", "Organisation default"),
@@ -23,14 +28,14 @@ class Campaign(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organisation = models.ForeignKey(Organisation, on_delete=models.CASCADE, related_name="campaigns")
     name = models.CharField(max_length=200)
-    language = models.CharField(max_length=16, choices=LANGUAGE_CHOICES, default="hinglish")
+    language = models.CharField(max_length=16, choices=LANGUAGE_CHOICES, default="hi")
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     dograh_workflow_uuid = models.CharField(max_length=64, blank=True)
     dograh_trigger_uuid = models.CharField(max_length=64, blank=True)
     permission_message = models.CharField(max_length=500, blank=True)
     tts_provider = models.CharField(max_length=32, choices=TTS_CHOICES, blank=True, default="")
-    tts_voice = models.CharField(max_length=80, blank=True)
+    tts_voice = models.CharField(max_length=80, choices=VOICE_CHOICES, blank=True, default="female")
 
     class Meta:
         ordering = ["-created_at"]

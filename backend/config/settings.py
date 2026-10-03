@@ -144,19 +144,23 @@ ASTERISK_AMI_PORT = int(os.environ.get("ASTERISK_AMI_PORT", "5038"))
 ASTERISK_AMI_USER = os.environ.get("ASTERISK_AMI_USER", "caller")
 ASTERISK_AMI_SECRET = os.environ.get("ASTERISK_AMI_SECRET", "")
 
-DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY") or os.environ.get("deepgram_nova3_api", "")
+# Self-hosted speech stack (deploy/docker-compose.yml speech-stt / speech-tts).
+# Dograh reaches STT via the Deepgram Flux protocol and TTS via the OpenAI
+# speech API — both pointed at our GPU containers. See apps/agents/model_overrides.py.
+SPEECH_STT_URL = os.environ.get("SPEECH_STT_URL", "http://speech-stt:8000")
+SPEECH_TTS_URL = os.environ.get("SPEECH_TTS_URL", "http://speech-tts:8000/v1")
+SPEECH_API_TOKEN = os.environ.get("SPEECH_API_TOKEN", "")
+SPEECH_VOICE_NAME = os.environ.get("SPEECH_VOICE_NAME", "female")
+
+# Legacy names kept so older .env files and tests do not crash on import.
+DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
 SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "")
 CARTESIA_API_KEY = os.environ.get("CARTESIA_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 RUMIK_API_KEY = os.environ.get("RUMIK_API_KEY", "")
-# Base URL of the rumik-bridge service (deploy/docker-compose.yml), an
-# OpenAI-compatible facade in front of Rumik's streaming TTS. Dograh's org
-# model configuration points its TTS `base_url` here; a campaign's TTS
-# override then only needs to name a voice preset via `model`. See
-# context_guard/rumik_bridge.py and apps/agents/model_overrides.py.
-RUMIK_BRIDGE_URL = os.environ.get("RUMIK_BRIDGE_URL", "http://rumik-bridge:8080/v1")
+RUMIK_BRIDGE_URL = os.environ.get("RUMIK_BRIDGE_URL", SPEECH_TTS_URL)
 RUMIK_TTS_MODEL = os.environ.get("RUMIK_TTS_MODEL", "")
-RUMIK_TTS_DEFAULT_SPEAKER = os.environ.get("RUMIK_TTS_DEFAULT_SPEAKER", "")
+RUMIK_TTS_DEFAULT_SPEAKER = os.environ.get("RUMIK_TTS_DEFAULT_SPEAKER", SPEECH_VOICE_NAME)
 
 CALLING_WINDOW_START_HOUR = 9
 CALLING_WINDOW_END_HOUR = 21

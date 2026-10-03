@@ -87,11 +87,9 @@ def test_hindi_prompt_locks_feminine_forms_for_the_default_voice():
 
 
 @pytest.mark.django_db
-def test_hinglish_rumik_voice_stays_feminine_even_if_a_male_name_is_stored():
+def test_hindi_female_voice_locks_feminine_forms():
     campaign = _campaign()
-    campaign.language = "hinglish"
-    campaign.tts_provider = "rumik"
-    campaign.tts_voice = "abhilash"
+    campaign.tts_voice = "female"
     campaign.save()
     prompt = compile_system_prompt(campaign)
     assert "You are a woman." in prompt
@@ -99,10 +97,9 @@ def test_hinglish_rumik_voice_stays_feminine_even_if_a_male_name_is_stored():
 
 
 @pytest.mark.django_db
-def test_male_sarvam_voice_locks_masculine_forms():
+def test_hindi_male_voice_locks_masculine_forms():
     campaign = _campaign()
-    campaign.tts_provider = "sarvam"
-    campaign.tts_voice = "abhilash"
+    campaign.tts_voice = "male"
     campaign.save()
     prompt = compile_system_prompt(campaign)
     assert "You are a man." in prompt

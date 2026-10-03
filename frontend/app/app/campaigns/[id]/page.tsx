@@ -8,14 +8,14 @@ import { api, type CallRow, type Campaign } from "@/lib/api";
 const EMPTY: Campaign = {
   id: "",
   name: "",
-  language: "hinglish",
+  language: "hi",
   is_default: false,
   is_active: true,
   dograh_workflow_uuid: "",
   dograh_trigger_uuid: "",
   permission_message: "",
   tts_provider: "",
-  tts_voice: "",
+  tts_voice: "female",
   agent_name: "Priya",
   goal: "",
   offer_details: "",
@@ -129,7 +129,18 @@ export default function CampaignEditorPage() {
           <select className="h-10 w-full rounded-md border border-line bg-white px-3 text-sm" value={campaign.language} onChange={(e) => setCampaign({ ...campaign, language: e.target.value as Campaign["language"] })}>
             <option value="hi">Hindi</option>
             <option value="en_in">Indian English</option>
-            <option value="hinglish">Hinglish</option>
+          </select>
+          <p className="mt-1 text-xs text-ink/50">Hindi already allows English words in the same sentence.</p>
+        </div>
+        <div>
+          <Label>Voice</Label>
+          <select
+            className="h-10 w-full rounded-md border border-line bg-white px-3 text-sm"
+            value={campaign.tts_voice === "male" ? "male" : "female"}
+            onChange={(e) => setCampaign({ ...campaign, tts_voice: e.target.value })}
+          >
+            <option value="female">Female (Indian accent)</option>
+            <option value="male">Male (Indian accent)</option>
           </select>
         </div>
         <div>

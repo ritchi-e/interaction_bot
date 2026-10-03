@@ -1,0 +1,3 @@
+hey! i'm muga.
+i sound a little more human than your average voice model.
+try changing my tone, or add an inline event like a laugh or sigh.
