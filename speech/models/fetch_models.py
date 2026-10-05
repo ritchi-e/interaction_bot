@@ -45,6 +45,15 @@ SILERO_VAD_URL = os.environ.get(
     "SILERO_VAD_URL",
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
 )
+# Official Piper Hindi VITS voices (best available: priyamvada female, rohan male).
+PIPER_HF_BASE = os.environ.get(
+    "PIPER_HF_BASE",
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main",
+)
+PIPER_VOICES = (
+    ("hi_IN-priyamvada-medium", "hi/hi_IN/priyamvada/medium"),
+    ("hi_IN-rohan-medium", "hi/hi_IN/rohan/medium"),
+)
 
 
 def _sha256(path: Path) -> str:
@@ -180,6 +189,30 @@ def fetch_tts() -> dict:
     return {"tts_repo": DHEE_HF, "tts_dir": str(dest)}
 
 
+def fetch_piper() -> dict:
+    """Download official Piper Hindi ONNX voices for low-latency TTS."""
+    dest = MODELS_DIR / "tts" / "piper"
+    dest.mkdir(parents=True, exist_ok=True)
+    headers = {}
+    if HF_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_TOKEN}"
+    got = []
+    for name, rel in PIPER_VOICES:
+        onnx = dest / f"{name}.onnx"
+        cfg = dest / f"{name}.onnx.json"
+        for path, suffix in ((onnx, ".onnx"), (cfg, ".onnx.json")):
+            if path.exists() and path.stat().st_size > 1000:
+                continue
+            url = f"{PIPER_HF_BASE}/{rel}/{name}{suffix}"
+            try:
+                _download(url, path, headers=headers)
+            except Exception as exc:
+                print(f"WARNING: piper download failed {url}: {exc}")
+        if onnx.exists() and cfg.exists():
+            got.append(name)
+    return {"piper_dir": str(dest), "voices": got}
+
+
 def fetch_silero_vad() -> dict:
     dest = MODELS_DIR / "stt" / "silero_vad.onnx"
     if not dest.exists():
@@ -254,6 +287,7 @@ def main() -> int:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     info = {
         "tts": fetch_tts(),
+        "piper": fetch_piper(),
         "smart_turn": fetch_smart_turn(),
         "silero_vad": fetch_silero_vad(),
         "stt": export_nemotron_or_fallback(),

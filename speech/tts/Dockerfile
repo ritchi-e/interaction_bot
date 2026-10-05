@@ -2,14 +2,14 @@ FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg libsndfile1 ca-certificates \
+    ffmpeg libsndfile1 ca-certificates espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY cache.py text.py engine.py server.py ./
+COPY cache.py text.py engine.py piper_engine.py server.py ./
 COPY voices ./voices
 
 ENV MODELS_DIR=/models

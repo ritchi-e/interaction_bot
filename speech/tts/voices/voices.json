@@ -1,8 +1,22 @@
 {
   "voices": [
     {
+      "id": "selfhost-hi-female-fast",
+      "label": "Hindi · Female (fast Piper)",
+      "backend": "piper",
+      "language": "hi",
+      "gender": "female"
+    },
+    {
+      "id": "selfhost-hi-male-fast",
+      "label": "Hindi · Male (fast Piper)",
+      "backend": "piper",
+      "language": "hi",
+      "gender": "male"
+    },
+    {
       "id": "selfhost-hi-female",
-      "label": "Hindi · Female",
+      "label": "Hindi · Female (F5 quality)",
       "ref_audio": "hi_female.wav",
       "ref_text_file": "hi_female.txt",
       "language": "hi",
@@ -10,7 +24,7 @@
     },
     {
       "id": "selfhost-hi-male",
-      "label": "Hindi · Male",
+      "label": "Hindi · Male (F5 quality)",
       "ref_audio": "hi_male.wav",
       "ref_text_file": "hi_male.txt",
       "language": "hi",

@@ -268,11 +268,23 @@ async def chat_completions(request: Request):
                     else {}
                 )
                 async with httpx.AsyncClient(timeout=2.0) as client:
-                    await client.post(
+                    resp = await client.post(
                         f"{SPEECH_TTS}/audio/prewarm",
                         json={"input": line, "model": voice_model},
                         headers=headers,
                     )
+                    if resp.status_code >= 400:
+                        # Don't raise into the token stream; just stop prewarming
+                        # this turn so a bad auth/config is visible in logs.
+                        import logging
+
+                        logging.getLogger("context_guard").warning(
+                            "prewarm failed status=%s model=%s chars=%d",
+                            resp.status_code,
+                            voice_model,
+                            len(line),
+                        )
+                        return
             except httpx.HTTPError:
                 return
 

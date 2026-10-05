@@ -30,13 +30,14 @@ SAMPLE_RATE = 16000
 class StreamHandle:
     stream: Any
     language: str = "auto"
+    vad: Any = None  # per-stream Silero VAD; never share across calls
 
 
 class AsrEngine:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.recognizer = None
-        self.vad = None
+        self._vad_config = None  # template; each stream gets its own detector
         self.smart_turn = None
         self._load()
 
@@ -90,12 +91,19 @@ class AsrEngine:
             vad_config.silero_vad.min_silence_duration = 0.15
             vad_config.silero_vad.min_speech_duration = 0.1
             vad_config.sample_rate = SAMPLE_RATE
-            self.vad = sherpa_onnx.VoiceActivityDetector(vad_config, buffer_size_in_seconds=30)
+            self._vad_config = vad_config
             log.info("silero VAD loaded from %s", vad_model)
         else:
             log.warning("silero VAD model not found; using energy VAD fallback")
 
         self.smart_turn = _maybe_load_smart_turn(SMART_TURN_PATH)
+
+    def _new_vad(self):
+        if self._vad_config is None:
+            return None
+        import sherpa_onnx
+
+        return sherpa_onnx.VoiceActivityDetector(self._vad_config, buffer_size_in_seconds=30)
 
     def create_stream(self, language: str = "auto") -> StreamHandle:
         stream = self.recognizer.create_stream()
@@ -113,7 +121,7 @@ class AsrEngine:
                 set_opt("language", prompt)
             except Exception as exc:
                 log.debug("stream language option unsupported: %s", exc)
-        return StreamHandle(stream=stream, language=prompt)
+        return StreamHandle(stream=stream, language=prompt, vad=self._new_vad())
 
     def accept_pcm16(self, handle: StreamHandle, pcm16: bytes, input_rate: int) -> None:
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
@@ -137,19 +145,40 @@ class AsrEngine:
             # emitted, so the agent could never hear or respond to a caller.
             return [self.recognizer.get_result(h.stream).strip() for h in handles]
 
-    def is_speech(self, pcm16: bytes, input_rate: int) -> bool:
+    def is_speech(self, handle: StreamHandle, pcm16: bytes, input_rate: int) -> bool:
+        """Return whether *this* stream is currently in speech.
+
+        Important: Silero's ``empty()`` means "no *finished* speech segments
+        queued" — once a segment is finalized it stays queued until ``pop()``,
+        so treating ``not empty()`` as live speech sticks ``is_speech=True``
+        forever after the first utterance and we never emit EndOfTurn. Dograh
+        Flux needs EndOfTurn to commit the user turn to the LLM; without it
+        the call just sits until user_idle hangup even though Updates had text.
+        Use ``is_speech_detected()`` for the live flag, and drain finished
+        segments so the queue does not grow.
+        """
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
         if input_rate != SAMPLE_RATE and len(audio):
             audio = _resample(audio, input_rate, SAMPLE_RATE)
-        if self.vad is not None:
-            self.vad.accept_waveform(audio)
-            # Non-empty front of queue ≈ speech segment detected recently.
-            return not self.vad.empty() or float(np.abs(audio).mean()) > 0.01
+        vad = handle.vad
+        if vad is not None:
+            with self._lock:
+                vad.accept_waveform(audio)
+                while not vad.empty():
+                    vad.pop()
+                speaking = bool(vad.is_speech_detected())
+            # Telephony echo of the bot is usually quieter than near-end speech.
+            # Require a modest energy floor even when Silero flips true, so the
+            # bot's own playback on the line does not become a fake user turn.
+            if speaking:
+                mean_abs = float(np.abs(audio).mean()) if len(audio) else 0.0
+                speaking = mean_abs >= float(os.environ.get("STT_SPEECH_MIN_ABS", "0.012"))
+            return speaking
         # Energy fallback
         if not len(audio):
             return False
         rms = float(np.sqrt(np.mean(audio * audio)))
-        return rms > 0.015
+        return rms > float(os.environ.get("STT_SPEECH_MIN_RMS", "0.018"))
 
     def end_of_turn_prob(self, pcm16_window: bytes, input_rate: int) -> float | None:
         if self.smart_turn is None:

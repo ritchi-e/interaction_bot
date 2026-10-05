@@ -66,6 +66,7 @@ def test_publish_updates_existing_workflow(monkeypatch):
     assert overrides["stt"]["provider"] == "deepgram"
     assert overrides["stt"]["model"] == "flux-general-multi"
     assert overrides["stt"]["language"] == "hi"
+    assert called["workflow_configurations"]["max_user_idle_timeout"] == 12.0
     assert "dictionary" not in called["workflow_configurations"]
 
 

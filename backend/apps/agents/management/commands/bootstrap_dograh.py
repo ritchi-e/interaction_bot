@@ -53,7 +53,7 @@ class Command(BaseCommand):
                     "tts": {
                         "provider": "openai",
                         "base_url": settings.SPEECH_TTS_URL,
-                        "model": "selfhost-hi-female",
+                        "model": "selfhost-hi-female-fast",
                         "voice": "alloy",
                         "api_key": token,
                     },

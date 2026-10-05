@@ -28,6 +28,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 API_TOKEN = (os.environ.get("SPEECH_API_TOKEN") or "").strip()
 PREWARM_TTL = float(os.environ.get("TTS_PREWARM_TTL", "120"))
 PREWARM_MAX = int(os.environ.get("TTS_PREWARM_MAX", "64"))
+# Leading silence so Plivo/media can settle and the callee can lift the phone
+# before the greeting text starts (avoids "half greeting before I picked up").
+LEAD_SILENCE_MS = int(os.environ.get("TTS_LEAD_SILENCE_MS", "450"))
+LEAD_SILENCE = bytes(int(SAMPLE_RATE * (LEAD_SILENCE_MS / 1000.0) * 2))  # int16 mono
 
 
 def _auth_ok(request: Request) -> bool:
@@ -178,6 +182,8 @@ async def speech(request: Request):
 
         threading.Thread(target=producer, daemon=True).start()
         first = True
+        if LEAD_SILENCE:
+            yield LEAD_SILENCE
         while True:
             chunk = await queue.get()
             if chunk is None:
@@ -195,6 +201,8 @@ async def speech(request: Request):
     async def cached_body():
         served = False
         try:
+            if LEAD_SILENCE:
+                yield LEAD_SILENCE
             async for chunk in _consume_prewarmed(pw):
                 served = True
                 yield chunk

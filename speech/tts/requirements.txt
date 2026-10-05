@@ -19,3 +19,6 @@ pypinyin>=0.51.0
 librosa>=0.10.0
 x-transformers>=1.27.0
 # torch is installed from the CUDA index in the Dockerfile.
+# Fast Hindi VITS via Piper (CPU ONNX; espeak-ng provided in Dockerfile).
+piper-tts>=1.3.0
+onnxruntime>=1.19.0

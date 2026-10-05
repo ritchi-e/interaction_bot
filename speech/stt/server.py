@@ -270,7 +270,9 @@ async def _drain_session(engine: AsrEngine, session: ListenSession) -> None:
 
     # Approximate duration of this batch at the call's sample rate.
     dt_ms = (len(pcm) / 2) / max(session.sample_rate, 1) * 1000.0
-    is_speech = await asyncio.to_thread(engine.is_speech, pcm, session.sample_rate)
+    is_speech = await asyncio.to_thread(
+        engine.is_speech, session.handle, pcm, session.sample_rate
+    )
     await asyncio.to_thread(engine.accept_pcm16, session.handle, pcm, session.sample_rate)
     texts = await asyncio.to_thread(engine.decode_batch, [session.handle])
     transcript = texts[0] if texts else session.turn.transcript
@@ -288,7 +290,15 @@ async def _drain_session(engine: AsrEngine, session: ListenSession) -> None:
         eot_prob=eot_prob,
     )
     for event, payload in events:
-        await session.send_json(flux_message(event, payload))
+        msg = flux_message(event, payload)
+        if event in (Event.START_OF_TURN, Event.END_OF_TURN, Event.EAGER_END_OF_TURN):
+            log.info(
+                "turn id=%s event=%s text=%r",
+                session.id,
+                msg.get("event"),
+                (msg.get("transcript") or "")[:80],
+            )
+        await session.send_json(msg)
 
 
 @app.get("/")

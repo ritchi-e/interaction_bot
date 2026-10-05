@@ -1,4 +1,4 @@
-"""dhee-indic-f5 synthesis engine with voice caching and clause pipelining."""
+"""TTS engine: Piper (fast VITS) for Hindi + dhee-indic-f5 for quality/English."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from cache import PcmCache
+from piper_engine import PiperEngine
 from text import normalize, split_clauses
 
 log = logging.getLogger("speech_tts.engine")
@@ -27,6 +28,8 @@ SAMPLE_RATE = 24000
 NFE = int(os.environ.get("TTS_NFE", "16"))
 DEVICE = os.environ.get("TTS_DEVICE", "cuda")
 FIRST_MAX_WORDS = int(os.environ.get("TTS_FIRST_CLAUSE_WORDS", "8"))
+# When 1, skip loading F5 so container starts fast (Hindi Piper only).
+PIPER_ONLY = os.environ.get("TTS_PIPER_ONLY", "0") == "1"
 
 
 @dataclass
@@ -35,6 +38,7 @@ class Voice:
     ref_audio: Path
     ref_text: str
     language: str
+    backend: str = "f5"
 
 
 class TtsEngine:
@@ -42,17 +46,26 @@ class TtsEngine:
         self._lock = threading.Lock()
         self.model = None
         self.voices: dict[str, Voice] = {}
+        self.piper = PiperEngine()
         self.cache = PcmCache(
             max_items=int(os.environ.get("TTS_CACHE_ITEMS", "256")),
             disk_dir=os.environ.get("TTS_CACHE_DIR", "/models/tts/cache"),
         )
         self._load_voices()
-        self._load_model()
+        if not PIPER_ONLY:
+            self._load_model()
+        else:
+            log.info("TTS_PIPER_ONLY=1 — skipping F5 load")
+        self._warm_piper()
 
     def _load_voices(self) -> None:
         raw = json.loads(VOICES_JSON.read_text(encoding="utf-8"))
         for item in raw.get("voices", []):
             vid = item["id"]
+            backend = item.get("backend", "f5")
+            if backend == "piper":
+                # Piper voices are registered from on-disk ONNX via PiperEngine.
+                continue
             audio = Path(item["ref_audio"])
             if not audio.is_absolute():
                 # Prefer models volume, then image-bundled voices/.
@@ -76,10 +89,28 @@ class TtsEngine:
                 ref_audio=audio,
                 ref_text=ref_text,
                 language=item.get("language", "hi"),
+                backend="f5",
             )
+
+        for vid, info in self.piper.voices.items():
+            self.voices[vid] = Voice(
+                id=vid,
+                ref_audio=Path(""),
+                ref_text="",
+                language=info.language,
+                backend="piper",
+            )
+
         if not self.voices:
-            raise RuntimeError(f"no voices defined in {VOICES_JSON}")
+            raise RuntimeError(f"no voices defined in {VOICES_JSON} and no piper models")
         log.info("voices: %s", list(self.voices))
+
+    def _warm_piper(self) -> None:
+        for vid in list(self.piper.voices):
+            try:
+                list(self.piper.synthesize_pcm(vid, "नमस्ते।"))
+            except Exception as exc:
+                log.warning("piper warm-up failed for %s: %s", vid, exc)
 
     def _load_model(self) -> None:
         import importlib.util
@@ -116,9 +147,9 @@ class TtsEngine:
             except Exception as exc:
                 log.warning("torch.compile skipped: %s", exc)
 
-        # Warm-up each system voice once so first calls stay fast.
+        # Warm-up each F5 system voice once so first calls stay fast.
         for voice in self.voices.values():
-            if not voice.ref_audio.exists():
+            if voice.backend != "f5" or not voice.ref_audio.exists():
                 continue
             sample = "नमस्ते।" if voice.language.startswith("hi") else "Hello."
             try:
@@ -132,6 +163,7 @@ class TtsEngine:
             return self.voices[model_field]
         for key in (
             model_field or "",
+            "selfhost-hi-female-fast",
             "selfhost-hi-female",
             "selfhost-en-female",
             next(iter(self.voices)),
@@ -151,6 +183,23 @@ class TtsEngine:
         clean = normalize(text, voice.language)
         if not clean:
             return
+
+        if voice.backend == "piper":
+            if use_cache:
+                hit = self.cache.get(voice.id, clean)
+                if hit is not None:
+                    step = 4800
+                    for i in range(0, len(hit), step):
+                        yield hit[i : i + step]
+                    return
+            collected = bytearray()
+            for chunk in self.piper.synthesize_pcm(voice.id, clean):
+                collected.extend(chunk)
+                yield chunk
+            if use_cache and collected:
+                self.cache.put(voice.id, clean, bytes(collected))
+            return
+
         if use_cache:
             hit = self.cache.get(voice.id, clean)
             if hit is not None:
@@ -172,6 +221,8 @@ class TtsEngine:
             self.cache.put(voice.id, clean, bytes(collected))
 
     def _synth_clause(self, voice: Voice, clause: str) -> bytes:
+        if self.model is None:
+            raise RuntimeError("F5 model not loaded; use a *-fast Piper voice or unset TTS_PIPER_ONLY")
         if not voice.ref_audio.exists():
             raise FileNotFoundError(
                 f"reference audio missing for {voice.id}: {voice.ref_audio}. "

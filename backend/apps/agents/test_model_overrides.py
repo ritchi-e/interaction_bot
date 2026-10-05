@@ -56,8 +56,8 @@ def test_no_dictionary_is_ever_sent():
 @pytest.mark.parametrize(
     "language,voice,model",
     [
-        ("hi", "female", "selfhost-hi-female"),
-        ("hi", "male", "selfhost-hi-male"),
+        ("hi", "female", "selfhost-hi-female-fast"),
+        ("hi", "male", "selfhost-hi-male-fast"),
         ("en_in", "female", "selfhost-en-female"),
         ("en_in", "male", "selfhost-en-male"),
     ],

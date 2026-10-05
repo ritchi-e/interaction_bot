@@ -722,17 +722,21 @@ def create_tts_service(
         if base_url:
             _validate_runtime_service_url(base_url, "base_url")
             kwargs["base_url"] = base_url
-            # Self-hosted OpenAI-compatible TTS (speech-tts) can take several
-            # seconds for the first PCM chunk on a cold clause; pipecat defaults
-            # to 3s and would false-timeout mid-greeting.
-            kwargs.setdefault("stop_frame_timeout_s", 45.0)
+            # Self-hosted OpenAI-compatible TTS (speech-tts): Piper is usually
+            # <1s; F5 can still take a few seconds on cold clauses. Pipecat's
+            # default 3s stop-frame timeout is too aggressive for F5, but 45s
+            # kept the user muted far too long when BotStoppedSpeaking lagged.
+            kwargs.setdefault("stop_frame_timeout_s", 12.0)
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
             sample_rate=OPENAI_SAMPLE_RATE,
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
-            silence_time_s=1.0,
+            # 1.0s of post-TTS silence kept MuteUntilFirstBotComplete engaged
+            # after the greeting finished, so the caller's first reply (often
+            # right after "hello") never reached STT. Keep a short tail only.
+            silence_time_s=0.25,
             **kwargs,
         )
     elif user_config.tts.provider == ServiceProviders.GOOGLE.value:

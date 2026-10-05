@@ -10,7 +10,14 @@ class AgentProfile(TimeStampedModel):
     persona = models.TextField(blank=True)
     greeting = models.TextField(blank=True, default="Hello, this is a call about the message you replied to.")
     closing_line = models.TextField(blank=True, default="Thank you for your time. Goodbye.")
-    allow_interrupt = models.BooleanField(default=True)
+    allow_interrupt = models.BooleanField(
+        default=False,
+        help_text=(
+            "When True, Dograh keeps the mic open while the bot speaks (barge-in). "
+            "On PSTN that also lets the bot hear its own echo as the caller, so "
+            "default False for telephony."
+        ),
+    )
     max_call_seconds = models.PositiveIntegerField(default=300)
     dograh_workflow_id = models.PositiveIntegerField(null=True, blank=True)
     dograh_workflow_uuid = models.CharField(max_length=64, blank=True)

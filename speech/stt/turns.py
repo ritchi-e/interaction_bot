@@ -41,6 +41,7 @@ class TurnConfig:
 class TurnState:
     config: TurnConfig = field(default_factory=TurnConfig)
     in_turn: bool = False
+    start_sent: bool = False
     speech_ms: float = 0.0
     silence_ms: float = 0.0
     transcript: str = ""
@@ -51,6 +52,7 @@ class TurnState:
 
     def reset_turn(self) -> None:
         self.in_turn = False
+        self.start_sent = False
         self.speech_ms = 0.0
         self.silence_ms = 0.0
         self.transcript = ""
@@ -83,14 +85,19 @@ class TurnState:
                 self.eager_sent = False
             if not self.in_turn and self.speech_ms >= self.config.start_speech_ms:
                 self.in_turn = True
+            # Announce StartOfTurn only once we have ASR text. Firing it on
+            # bare VAD hits lets line noise barge-in on the greeting and then
+            # produces empty turns Dograh cannot use.
+            if self.in_turn and self.transcript and not self.start_sent:
                 events.append(
                     (
                         Event.START_OF_TURN,
                         {"transcript": self.transcript, "languages": list(self.languages)},
                     )
                 )
+                self.start_sent = True
                 self.last_update_ms = self.elapsed_ms
-            elif self.in_turn and self.transcript:
+            elif self.in_turn and self.start_sent and self.transcript:
                 if self.elapsed_ms - self.last_update_ms >= self.config.update_interval_ms:
                     events.append(
                         (
@@ -109,6 +116,12 @@ class TurnState:
         self.silence_ms += dt_ms
         self.speech_ms = 0.0
 
+        # Never started a real turn (VAD flicker, no ASR text) — just reset.
+        if not self.start_sent:
+            if self.silence_ms >= self.config.eot_silence_ms:
+                self.reset_turn()
+            return events
+
         timeout = min(self.config.eot_timeout_ms, max(self.config.eot_silence_ms, 1.0))
         smart = eot_prob if (self.config.use_smart_turn and eot_prob is not None) else 1.0
 
@@ -116,6 +129,7 @@ class TurnState:
             not self.eager_sent
             and self.silence_ms >= self.config.eager_silence_ms
             and smart >= self.config.eager_eot_threshold
+            and self.transcript.strip()
         ):
             events.append(
                 (
@@ -128,16 +142,17 @@ class TurnState:
         end_ready = self.silence_ms >= self.config.eot_silence_ms and smart >= self.config.eot_threshold
         force_end = self.silence_ms >= timeout
         if end_ready or force_end:
-            events.append(
-                (
-                    Event.END_OF_TURN,
-                    {
-                        "transcript": self.transcript,
-                        "languages": list(self.languages),
-                        "words": [],
-                    },
+            if self.transcript.strip():
+                events.append(
+                    (
+                        Event.END_OF_TURN,
+                        {
+                            "transcript": self.transcript,
+                            "languages": list(self.languages),
+                            "words": [],
+                        },
+                    )
                 )
-            )
             self.reset_turn()
         return events
 
