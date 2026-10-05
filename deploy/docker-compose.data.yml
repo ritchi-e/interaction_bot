@@ -1,0 +1,32 @@
+# Bind Docker volumes to a persistent host path (100GB EBS mounted at /data).
+# Use on the GPU server:
+#   export CALLER_DATA_ROOT=/data/caller
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.data.yml ...
+#
+# Create dirs once (see deploy/GPU_SERVER_SETUP.md).
+
+x-data-root: &data_root
+  driver: local
+  driver_opts:
+    type: none
+    o: bind
+
+volumes:
+  pgdata:
+    <<: *data_root
+    driver_opts:
+      type: none
+      o: bind
+      device: ${CALLER_DATA_ROOT:-/data/caller}/pgdata
+  caddy-data:
+    <<: *data_root
+    driver_opts:
+      type: none
+      o: bind
+      device: ${CALLER_DATA_ROOT:-/data/caller}/caddy-data
+  speech-models:
+    <<: *data_root
+    driver_opts:
+      type: none
+      o: bind
+      device: ${CALLER_DATA_ROOT:-/data/caller}/speech-models

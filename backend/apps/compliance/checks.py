@@ -102,8 +102,12 @@ def evaluate_call(call_request, moment=None):
     if plivo is None or not plivo.is_ready:
         return Decision("reject", "plivo_not_ready")
 
-    allowed, next_at = calling_window(moment)
-    if not allowed:
-        return Decision("schedule", "outside_calling_window", scheduled_for=next_at)
+    # Manual campaign test-calls (is_test=True) intentionally bypass the
+    # TRAI 09:00-21:00 IST window so ops can verify the agent any time.
+    # Production WhatsApp-triggered calls still get scheduled for the next window.
+    if not call_request.is_test:
+        allowed, next_at = calling_window(moment)
+        if not allowed:
+            return Decision("schedule", "outside_calling_window", scheduled_for=next_at)
 
     return Decision("dial", caller_id=plivo.caller_id)

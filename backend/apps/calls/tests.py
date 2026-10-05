@@ -222,3 +222,49 @@ def test_due_calls_dial_inside_window(ready, monkeypatch):
     )
     assert dispatch_due_calls() == 1
     assert dialed.get("ok") is True
+
+
+@pytest.mark.django_db
+def test_test_call_bypasses_calling_window(ready, monkeypatch):
+    """Campaign test-calls (is_test=True) must dial even outside 09:00-21:00 IST."""
+    user, org, campaign = ready
+    night = datetime(2026, 9, 28, 22, 30, tzinfo=IST)
+    monkeypatch.setattr("apps.compliance.window.now_ist", lambda: night)
+    queued = {}
+
+    def fake_delay(call_id):
+        queued["id"] = call_id
+
+    monkeypatch.setattr("apps.calls.tasks.initiate_call.delay", fake_delay)
+    from apps.calls.models import Lead
+    from apps.calls.services import apply_decision
+
+    CallPermission.objects.create(organisation=org, phone_e164="+919876543210", is_permanent=True)
+    lead = Lead.objects.create(organisation=org, phone_e164="+919876543210", campaign=campaign)
+    call = CallRequest.objects.create(
+        organisation=org, lead=lead, campaign=campaign, is_test=True, status="queued"
+    )
+    decision = apply_decision(call, moment=night)
+    call.refresh_from_db()
+    assert decision.action == "dial"
+    assert call.status == "queued"
+    assert call.skip_reason == ""
+    assert queued.get("id") == str(call.id)
+
+
+@pytest.mark.django_db
+def test_production_call_still_waits_outside_window(ready, monkeypatch):
+    user, org, campaign = ready
+    night = datetime(2026, 9, 28, 22, 30, tzinfo=IST)
+    monkeypatch.setattr("apps.compliance.window.now_ist", lambda: night)
+    from apps.calls.models import Lead
+    from apps.calls.services import apply_decision
+
+    CallPermission.objects.create(organisation=org, phone_e164="+919876543210", is_permanent=True)
+    lead = Lead.objects.create(organisation=org, phone_e164="+919876543210", campaign=campaign)
+    call = CallRequest.objects.create(organisation=org, lead=lead, campaign=campaign, status="queued")
+    decision = apply_decision(call, moment=night)
+    call.refresh_from_db()
+    assert decision.action == "schedule"
+    assert call.status == "pending_window"
+    assert call.skip_reason == "outside_calling_window"

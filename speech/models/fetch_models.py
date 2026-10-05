@@ -97,6 +97,46 @@ def _write_silence_wav(path: Path, seconds: float = 6.0, sr: int = 24000) -> Non
         w.writeframes(bytes(frames))
 
 
+def _patch_dhee_forward_nfe_step(dest: Path) -> None:
+    """dheeyantra/dhee-indic-f5's model.py forward() doesn't accept nfe_step,
+    so infer_process/infer_batch_process silently default to 32 diffusion
+    steps regardless of TTS_NFE, doubling synthesis latency for no configured
+    reason. Patch it once, idempotently, so engine.py's nfe_step=NFE actually
+    takes effect.
+    """
+    model_py = dest / "model.py"
+    if not model_py.exists():
+        return
+    content = model_py.read_text(encoding="utf-8")
+    if "nfe_step" in content:
+        return  # already patched (or upstream added support itself)
+    old_sig = 'def forward(self, text: str, ref_audio_path: str, ref_text: str):'
+    old_call_tail = (
+        '            mel_spec_type="vocos",\n'
+        "            speed=self.config.speed,\n"
+        "            device=self.device,\n"
+        "        )"
+    )
+    new_call_tail = (
+        '            mel_spec_type="vocos",\n'
+        "            speed=self.config.speed,\n"
+        "            device=self.device,\n"
+        "            **({\"nfe_step\": nfe_step} if nfe_step is not None else {}),\n"
+        "        )"
+    )
+    if old_sig not in content or old_call_tail not in content:
+        print("WARNING: dhee-indic-f5 model.py shape changed; nfe_step patch skipped")
+        return
+    content = content.replace(
+        old_sig,
+        "def forward(self, text: str, ref_audio_path: str, ref_text: str, nfe_step: int = None):",
+        1,
+    )
+    content = content.replace(old_call_tail, new_call_tail, 1)
+    model_py.write_text(content, encoding="utf-8")
+    print(f"patched {model_py} to forward nfe_step")
+
+
 def fetch_tts() -> dict:
     dest = MODELS_DIR / "tts" / "dhee-indic-f5"
     if not (dest / "config.json").exists() and not any(dest.glob("*.safetensors")):
@@ -105,6 +145,7 @@ def fetch_tts() -> dict:
             _hf_snapshot(DHEE_HF, dest)
         except Exception as exc:
             print(f"WARNING: dhee-indic-f5 download failed ({exc}); TTS image will pull on first start")
+    _patch_dhee_forward_nfe_step(dest)
     # Four system voices (Hindi/English × female/male). Prefer checked-in
     # samples from speech/data_for_voice or speech/tts/voices, then fall back
     # to short placeholder tones only if nothing is present.

@@ -17,10 +17,19 @@ x-gpu: &gpu
 services:
   postgres:
     image: postgres:16-alpine
+    # POSTGRES_PASSWORD is a secret: load it from env_file, not `${VAR}`
+    # here. The latter is resolved by Compose against a project-directory
+    # .env (relative to this file's folder) rather than the real ../.env,
+    # so it silently fell back to the literal default below unless that
+    # exact variable also happened to be exported in the invoking shell —
+    # causing this service and backend/celery (which read the real secret
+    # via their own env_file) to initialize/authenticate with different
+    # passwords.
+    env_file:
+      - ../.env
     environment:
       POSTGRES_DB: caller
       POSTGRES_USER: caller
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caller}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -39,13 +48,16 @@ services:
     env_file:
       - ../.env
     environment:
+      # POSTGRES_PASSWORD and SPEECH_API_TOKEN are secrets: they come from
+      # env_file above. Do not re-declare them as `${VAR}` here -- Compose
+      # resolves that against a project-directory .env this repo doesn't
+      # have, silently blanking/defaulting them instead of using the real
+      # env_file value (see the postgres service for the full story).
       POSTGRES_HOST: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caller}
       REDIS_URL: redis://redis:6379/0
       DJANGO_DEBUG: "0"
       SPEECH_STT_URL: ${SPEECH_STT_URL:-http://speech-stt:8000}
       SPEECH_TTS_URL: ${SPEECH_TTS_URL:-http://speech-tts:8000/v1}
-      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
       SPEECH_VOICE_NAME: ${SPEECH_VOICE_NAME:-siya}
     depends_on:
       postgres:
@@ -66,11 +78,9 @@ services:
       - ../.env
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caller}
       REDIS_URL: redis://redis:6379/0
       SPEECH_STT_URL: ${SPEECH_STT_URL:-http://speech-stt:8000}
       SPEECH_TTS_URL: ${SPEECH_TTS_URL:-http://speech-tts:8000/v1}
-      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
     depends_on:
       - backend
       - redis
@@ -84,7 +94,6 @@ services:
       - ../.env
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-caller}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis
@@ -107,7 +116,8 @@ services:
       UPSTREAM_LLM_MODEL: ${UPSTREAM_LLM_MODEL:-gpt-4o-mini}
       BACKEND_INTERNAL_URL: http://backend:8000
       SPEECH_TTS_URL: ${SPEECH_TTS_URL:-http://speech-tts:8000/v1}
-      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
+      # SPEECH_API_TOKEN is a secret: it must come from env_file above, not
+      # be re-declared here (same shadowing bug as the comment above).
     depends_on:
       - backend
       - speech-tts
@@ -132,12 +142,17 @@ services:
     gpus: all
     build:
       context: ../speech/stt
+    # SPEECH_API_TOKEN is a secret: load it from env_file, not `${VAR}`
+    # here (same shadowing bug documented on the postgres/backend
+    # services). Without this, speech-stt always ran with an empty token,
+    # i.e. with auth silently disabled.
+    env_file:
+      - ../.env
     environment:
       MODELS_DIR: /models
       STT_MODEL_DIR: /models/stt/nemotron
       SMART_TURN_PATH: /models/stt/smart-turn/smart-turn-v3-gpu.onnx
       SHERPA_PROVIDER: ${SHERPA_PROVIDER:-cuda}
-      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
     volumes:
       - speech-models:/models:ro
     healthcheck:
@@ -158,15 +173,22 @@ services:
     gpus: all
     build:
       context: ../speech/tts
+    # SPEECH_API_TOKEN is a secret: load it from env_file, not `${VAR}`
+    # here (same shadowing bug documented on the postgres/backend
+    # services). Without this, speech-tts always ran with an empty token,
+    # i.e. with auth silently disabled.
+    env_file:
+      - ../.env
     environment:
       MODELS_DIR: /models
       TTS_MODEL_DIR: /models/tts/dhee-indic-f5
       TTS_VOICES_DIR: /models/tts/voices
       TTS_DEVICE: cuda
       TTS_NFE: ${TTS_NFE:-16}
-      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
       HF_HOME: /models/hf-cache
       DHEE_HF_ID: ${DHEE_HF_ID:-dheeyantra/dhee-indic-f5}
+      # IndicF5 custom code lives on the models volume (f5_tts package).
+      PYTHONPATH: /models/tts/dhee-indic-f5
     volumes:
       - speech-models:/models
     healthcheck:

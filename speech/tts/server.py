@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -163,20 +164,24 @@ async def speech(request: Request):
     pw = request.app.state.prewarm.get((model, text))
 
     async def live_body():
-        # Start the HTTP response immediately so Dograh's TTS client does not
-        # time out while the first clause is still generating.
-        yield b"\x00" * 4800
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=16)
 
-        def run():
-            return list(engine.synthesize_pcm(model, text))
+        def producer() -> None:
+            try:
+                for chunk in engine.synthesize_pcm(model, text):
+                    asyncio.run_coroutine_threadsafe(queue.put(chunk), loop).result()
+            except Exception as exc:
+                log.warning("synth failed: %s", exc)
+            finally:
+                asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
 
-        try:
-            chunks = await asyncio.to_thread(run)
-        except Exception as exc:
-            log.warning("synth failed: %s", exc)
-            return
+        threading.Thread(target=producer, daemon=True).start()
         first = True
-        for chunk in chunks:
+        while True:
+            chunk = await queue.get()
+            if chunk is None:
+                break
             if first:
                 log.info(
                     "first audio %.0fms (%d chars, %s)",

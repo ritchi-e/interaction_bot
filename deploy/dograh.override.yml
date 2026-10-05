@@ -6,10 +6,27 @@
 services:
   postgres:
     ports: !reset []
+  redis:
+    ports: !reset []
   api:
+    container_name: dograh-api
     environment:
       DEPLOYMENT_MODE: oss
       ENABLE_TELEMETRY: "false"
+      # Do not inherit caller `.env` PUBLIC_BASE_URL (phonwa.online) — Plivo
+      # answer_url must hit Dograh's /api/v1/telephony/* on this host.
+      PUBLIC_BASE_URL: https://dograh.phonwa.online
+      PUBLIC_HOST: dograh.phonwa.online
+      BACKEND_API_ENDPOINT: https://dograh.phonwa.online
+      FORWARDED_ALLOW_IPS: "*"
+      # On network `caller`, hostname `postgres` is caller-postgres — not Dograh's DB.
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@dograh-postgres-1:5432/postgres"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@dograh-redis-1:6379"
+    # Self-hosted speech-stt speaks Deepgram Flux but uses a local token.
+    # Patch the cloud /v1/projects key check so force-recreate does not lose it.
+    volumes:
+      - ../deploy/dograh-overrides/check_validity.py:/app/api/services/configuration/check_validity.py:ro
+      - ../deploy/dograh-overrides/service_factory.py:/app/api/services/pipecat/service_factory.py:ro
     networks:
       - app-network
       - caller

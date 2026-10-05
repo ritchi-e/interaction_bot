@@ -1,7 +1,8 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 numpy>=1.26.0
-transformers>=4.46.0
+# IndicF5 custom code breaks under transformers 5.x meta-device init.
+transformers>=4.46.0,<5.0.0
 accelerate>=0.34.0
 safetensors>=0.4.0
 huggingface_hub>=0.26.0
@@ -9,4 +10,12 @@ soundfile>=0.12.1
 torchaudio>=2.4.0
 einops>=0.8.0
 vocos>=0.1.0
+pydub>=0.25.1
+matplotlib>=3.8.0
+tqdm>=4.66.0
+torchdiffeq>=0.2.4
+jieba>=0.42.1
+pypinyin>=0.51.0
+librosa>=0.10.0
+x-transformers>=1.27.0
 # torch is installed from the CUDA index in the Dockerfile.

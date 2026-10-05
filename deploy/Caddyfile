@@ -9,7 +9,7 @@
 # The Dograh UI is served on port 80 for requests to the public IP.
 http://144.24.7.240 {
 	handle /api/v1/* {
-		reverse_proxy dograh-api-1:8000
+		reverse_proxy dograh-api:8000
 	}
 	handle {
 		reverse_proxy dograh-ui-1:3010
@@ -17,8 +17,17 @@ http://144.24.7.240 {
 }
 
 dograh.{$APP_DOMAIN} {
-	reverse_proxy dograh-api-1:8000 {
-		flush_interval -1
+	encode gzip
+	handle /api/v1/* {
+		reverse_proxy dograh-api:8000 {
+			flush_interval -1
+			header_up Host {host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle {
+		reverse_proxy dograh-ui-1:3010
 	}
 }
 

@@ -5,6 +5,7 @@ prompt away, loads the locked prompt from the Django API, and checks every
 sentence of the model output before it is returned.
 """
 
+import asyncio
 import json
 import os
 import re
@@ -32,6 +33,20 @@ from guard import (
 
 app = FastAPI(title="context-guard")
 
+# Prewarm calls to speech-tts (see start_voice()) must never block the token
+# stream back to Dograh -- that would add a full extra network round trip of
+# latency to every spoken sentence, which is exactly the opposite of what
+# prewarming is for. Fire them in the background and keep a strong reference
+# so asyncio doesn't garbage-collect the task mid-flight.
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def fire_and_forget(coro):
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
 UPSTREAM = os.environ.get("UPSTREAM_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/")
 UPSTREAM_KEY = os.environ.get("UPSTREAM_LLM_API_KEY", "")
 BACKEND = os.environ.get("BACKEND_INTERNAL_URL", "http://127.0.0.1:8000").rstrip("/")
@@ -42,6 +57,7 @@ SPEECH_TTS = (
     or os.environ.get("RUMIK_BRIDGE_URL")
     or "http://speech-tts:8000/v1"
 ).rstrip("/")
+SPEECH_API_TOKEN = (os.environ.get("SPEECH_API_TOKEN") or "").strip()
 
 
 @app.get("/health")
@@ -246,10 +262,16 @@ async def chat_completions(request: Request):
             if not line or not voice_model:
                 continue
             try:
+                headers = (
+                    {"Authorization": f"Bearer {SPEECH_API_TOKEN}"}
+                    if SPEECH_API_TOKEN
+                    else {}
+                )
                 async with httpx.AsyncClient(timeout=2.0) as client:
                     await client.post(
                         f"{SPEECH_TTS}/audio/prewarm",
                         json={"input": line, "model": voice_model},
+                        headers=headers,
                     )
             except httpx.HTTPError:
                 return
@@ -313,10 +335,10 @@ async def chat_completions(request: Request):
                         signing_off = signing_off or signed
                         frame = speak(spoken)
                         if frame:
-                            await start_voice(spoken)
+                            fire_and_forget(start_voice(spoken))
                             yield frame
                     if violations:
-                        await record_violations(policy, call_request_id, violations)
+                        fire_and_forget(record_violations(policy, call_request_id, violations))
                     if blocked_now:
                         blocked = True
                         buffer = ""
@@ -324,16 +346,16 @@ async def chat_completions(request: Request):
             spoken, _rest, violations, _blocked = screen_piece(
                 buffer, facts, forbidden, competitors, handoff, flush=True
             )
-            await record_violations(policy, call_request_id, violations)
+            fire_and_forget(record_violations(policy, call_request_id, violations))
             if spoken:
                 spoken, signed = _without_signoff(spoken)
                 signing_off = signing_off or signed
                 frame = speak(spoken)
                 if frame:
-                    await start_voice(spoken)
+                    fire_and_forget(start_voice(spoken))
                     yield frame
         if handed_off and not spoke and not blocked and not ending and not signing_off:
-            await start_voice(handoff)
+            fire_and_forget(start_voice(handoff))
             yield chunk(handoff)
         if (ending or signing_off) and not saw_done:
             yield chunk(

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+import torch
 
 from cache import PcmCache
 from text import normalize, split_clauses
@@ -81,20 +82,34 @@ class TtsEngine:
         log.info("voices: %s", list(self.voices))
 
     def _load_model(self) -> None:
-        import torch
-        from transformers import AutoModel
+        import importlib.util
+        import sys
 
         repo = str(TTS_DIR) if TTS_DIR.exists() and any(TTS_DIR.iterdir()) else os.environ.get(
             "DHEE_HF_ID", "dheeyantra/dhee-indic-f5"
         )
         log.info("loading TTS from %s on %s nfe=%d", repo, DEVICE, NFE)
-        dtype = torch.float16 if DEVICE.startswith("cuda") else torch.float32
-        self.model = AutoModel.from_pretrained(repo, trust_remote_code=True, torch_dtype=dtype)
+
+        # Load IndicF5 wrapper directly — AutoModel.from_pretrained uses meta-device
+        # init on recent transformers and breaks Vocos / torchaudio filterbank setup.
+        model_py = Path(repo) / "model.py"
+        if not model_py.exists():
+            raise FileNotFoundError(f"TTS model.py missing under {repo}")
+        if str(TTS_DIR) not in sys.path:
+            sys.path.insert(0, str(TTS_DIR))
+        spec = importlib.util.spec_from_file_location("indic_f5_model", model_py)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot import {model_py}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        config = mod.INF5Config.from_pretrained(repo)
+        config.name_or_path = repo
+        self.model = mod.INF5Model(config)
         if hasattr(self.model, "to"):
             self.model.to(DEVICE)
         self.model.eval()
         # Optional compile — ignore failures on older GPUs / torch builds.
-        if os.environ.get("TTS_TORCH_COMPILE", "1") == "1" and DEVICE.startswith("cuda"):
+        if os.environ.get("TTS_TORCH_COMPILE", "0") == "1" and DEVICE.startswith("cuda"):
             try:
                 self.model = torch.compile(self.model, mode="reduce-overhead")
                 log.info("torch.compile enabled")
@@ -168,6 +183,7 @@ class TtsEngine:
                 clause,
                 ref_audio_path=str(voice.ref_audio),
                 ref_text=voice.ref_text,
+                nfe_step=NFE,
             )
         # Accept numpy / torch / list.
         if hasattr(audio, "detach"):

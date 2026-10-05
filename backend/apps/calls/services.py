@@ -23,8 +23,17 @@ def _prewarm_greeting(campaign, keys, text):
     if not target:
         return
     base_url, model = target
+    from django.conf import settings
+
+    token = (settings.SPEECH_API_TOKEN or "local").strip() or "local"
+    headers = {"Authorization": f"Bearer {token}"}
     try:
-        httpx.post(f"{base_url}/audio/prewarm", json={"input": text, "model": model}, timeout=2.0)
+        httpx.post(
+            f"{base_url}/audio/prewarm",
+            json={"input": text, "model": model},
+            headers=headers,
+            timeout=2.0,
+        )
     except httpx.HTTPError:
         pass
 

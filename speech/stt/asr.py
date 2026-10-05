@@ -129,7 +129,13 @@ class AsrEngine:
             ready = [h.stream for h in handles if self.recognizer.is_ready(h.stream)]
             if ready:
                 self.recognizer.decode_streams(ready)
-            return [self.recognizer.get_result(h.stream).text.strip() for h in handles]
+            # This sherpa-onnx build's get_result() returns the transcript as
+            # a plain str, not an object with a `.text` attribute. Calling
+            # `.text` raised "'str' object has no attribute 'text'" on every
+            # tick, which aborted _drain_session before the turn state
+            # machine ever ran -- no StartOfTurn/Update/EndOfTurn was ever
+            # emitted, so the agent could never hear or respond to a caller.
+            return [self.recognizer.get_result(h.stream).strip() for h in handles]
 
     def is_speech(self, pcm16: bytes, input_rate: int) -> bool:
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
