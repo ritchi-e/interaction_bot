@@ -213,6 +213,45 @@ def fetch_piper() -> dict:
     return {"piper_dir": str(dest), "voices": got}
 
 
+def fetch_parler() -> dict:
+    """Fetch Indic Parler-TTS weights for streaming Hindi voices.
+
+    HF hub is gated (contact-info form). Prefer ModelScope when the local
+    checkout is missing; accept HF_TOKEN as a fallback.
+    """
+    dest = MODELS_DIR / "tts" / "indic-parler-tts"
+    marker = dest / "model.safetensors"
+    if marker.exists() and marker.stat().st_size > 1_000_000_000:
+        return {"parler_dir": str(dest), "source": "existing"}
+
+    dest.mkdir(parents=True, exist_ok=True)
+    # ModelScope is ungated and matches ai4bharat/indic-parler-tts.
+    try:
+        from modelscope import snapshot_download
+
+        print(f"fetching Indic Parler via ModelScope -> {dest}")
+        snapshot_download("AI4Bharat/indic-parler-tts", local_dir=str(dest))
+        if marker.exists():
+            return {"parler_dir": str(dest), "source": "modelscope"}
+    except Exception as exc:
+        print(f"WARNING: ModelScope Parler fetch failed ({exc})")
+
+    try:
+        from huggingface_hub import snapshot_download as hf_snap
+
+        kwargs = {"local_dir": str(dest)}
+        if HF_TOKEN:
+            kwargs["token"] = HF_TOKEN
+        print(f"fetching Indic Parler via Hugging Face -> {dest}")
+        hf_snap("ai4bharat/indic-parler-tts", **kwargs)
+        if marker.exists():
+            return {"parler_dir": str(dest), "source": "huggingface"}
+    except Exception as exc:
+        print(f"WARNING: Hugging Face Parler fetch failed ({exc})")
+
+    return {"parler_dir": str(dest), "source": "missing"}
+
+
 def fetch_silero_vad() -> dict:
     dest = MODELS_DIR / "stt" / "silero_vad.onnx"
     if not dest.exists():
@@ -288,6 +327,7 @@ def main() -> int:
     info = {
         "tts": fetch_tts(),
         "piper": fetch_piper(),
+        "parler": fetch_parler(),
         "smart_turn": fetch_smart_turn(),
         "silero_vad": fetch_silero_vad(),
         "stt": export_nemotron_or_fallback(),

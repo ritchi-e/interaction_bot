@@ -252,41 +252,42 @@ async def chat_completions(request: Request):
     voice_model = policy.get("voice_model") or ""
 
     async def start_voice(text):
-        """Synthesise a finished sentence before Dograh asks for it.
+        """Optionally prewarm the first sentence — skipped for Parler.
 
-        The socket that is already speaking stays busy. This takes another
-        warm socket, so the next line is ready while the current one plays.
+        Parler is single-flight on the GPU. Speculative prewarm races the live
+        /v1/audio/speech request and queues behind the lock, so Dograh hears
+        multi-second gaps. Live streaming TTFA (~1–1.5s) is faster than a
+        contended prewarm. Piper/F5 still benefit from first-sentence prewarm.
         """
-        for sentence in split_sentences(text) or []:
-            line = " ".join(sentence.split())
-            if not line or not voice_model:
-                continue
-            try:
-                headers = (
-                    {"Authorization": f"Bearer {SPEECH_API_TOKEN}"}
-                    if SPEECH_API_TOKEN
-                    else {}
+        if "parler" in (voice_model or "").lower():
+            return
+        sentences = split_sentences(text) or []
+        line = " ".join((sentences[0] or "").split()) if sentences else ""
+        if not line or not voice_model:
+            return
+        try:
+            headers = (
+                {"Authorization": f"Bearer {SPEECH_API_TOKEN}"}
+                if SPEECH_API_TOKEN
+                else {}
+            )
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.post(
+                    f"{SPEECH_TTS}/audio/prewarm",
+                    json={"input": line, "model": voice_model},
+                    headers=headers,
                 )
-                async with httpx.AsyncClient(timeout=2.0) as client:
-                    resp = await client.post(
-                        f"{SPEECH_TTS}/audio/prewarm",
-                        json={"input": line, "model": voice_model},
-                        headers=headers,
-                    )
-                    if resp.status_code >= 400:
-                        # Don't raise into the token stream; just stop prewarming
-                        # this turn so a bad auth/config is visible in logs.
-                        import logging
+                if resp.status_code >= 400:
+                    import logging
 
-                        logging.getLogger("context_guard").warning(
-                            "prewarm failed status=%s model=%s chars=%d",
-                            resp.status_code,
-                            voice_model,
-                            len(line),
-                        )
-                        return
-            except httpx.HTTPError:
-                return
+                    logging.getLogger("context_guard").warning(
+                        "prewarm failed status=%s model=%s chars=%d",
+                        resp.status_code,
+                        voice_model,
+                        len(line),
+                    )
+        except httpx.HTTPError:
+            return
 
     async def generate():
         buffer = ""

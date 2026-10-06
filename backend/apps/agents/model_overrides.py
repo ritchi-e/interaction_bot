@@ -5,20 +5,20 @@ campaign's speech language and voice travel as a per-workflow
 ``workflow_configurations.model_overrides`` layered on top of that shared base.
 
 STT talks the Deepgram Flux protocol to our ``speech-stt`` container
-(Nemotron). TTS talks the OpenAI speech API to ``speech-tts`` (Piper VITS for Hindi,
-dhee-indic-f5 for English / quality fallback) using system voice IDs.
-Hindi campaigns already allow English loanwords (code-switching); there is no
-separate Hinglish language mode.
+(Nemotron). TTS talks the OpenAI speech API to ``speech-tts`` (Indic Parler-TTS streaming for
+Hindi by default, Piper as fallback, dhee-indic-f5 for English / quality) using
+system voice IDs. Hindi campaigns already allow English loanwords
+(code-switching); there is no separate Hinglish language mode.
 """
 
 from django.conf import settings
 
 # System voices shipped in speech/tts/voices/voices.json. Users pick gender in
-# the UI; language comes from the campaign. Hindi defaults to Piper VITS
-# (*-fast) for sub-second latency; English stays on F5 (no Piper en_in voice).
+# the UI; language comes from the campaign. Hindi defaults to Indic Parler
+# (Divya/Rohit) with streaming; English stays on F5 when enabled.
 _VOICE_IDS = {
-    ("hi", "female"): "selfhost-hi-female-fast",
-    ("hi", "male"): "selfhost-hi-male-fast",
+    ("hi", "female"): "selfhost-hi-female-parler",
+    ("hi", "male"): "selfhost-hi-male-parler",
     ("en_in", "female"): "selfhost-en-female",
     ("en_in", "male"): "selfhost-en-male",
 }

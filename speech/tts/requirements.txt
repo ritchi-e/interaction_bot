@@ -2,6 +2,7 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 numpy>=1.26.0
 # IndicF5 custom code breaks under transformers 5.x meta-device init.
+# parler-tts may pull a newer transformers; keep F5 optional via TTS_SKIP_F5.
 transformers>=4.46.0,<5.0.0
 accelerate>=0.34.0
 safetensors>=0.4.0
@@ -22,3 +23,7 @@ x-transformers>=1.27.0
 # Fast Hindi VITS via Piper (CPU ONNX; espeak-ng provided in Dockerfile).
 piper-tts>=1.3.0
 onnxruntime>=1.19.0
+# Indic Parler-TTS (streaming). Installed from GitHub in the Dockerfile
+# because PyPI may lag the streaming API.
+sentencepiece>=0.2.0
+protobuf>=4.25.0

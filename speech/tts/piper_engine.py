@@ -22,11 +22,12 @@ log = logging.getLogger("speech_tts.piper")
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 PIPER_DIR = Path(os.environ.get("PIPER_MODELS_DIR", MODELS_DIR / "tts" / "piper"))
 TARGET_SR = 24000
-# Hindi Piper voices trained from IndicTTS can run a bit fast; 1.15 slows
-# delivery slightly without sounding dragged.
-LENGTH_SCALE = float(os.environ.get("PIPER_LENGTH_SCALE", "1.15"))
-NOISE_SCALE = float(os.environ.get("PIPER_NOISE_SCALE", "0.667"))
-NOISE_W = float(os.environ.get("PIPER_NOISE_W", "0.8"))
+# Official Piper Hindi defaults are length=1, noise=0.667, noise_w=0.8.
+# We run a touch faster (0.95) and with slightly higher noise so delivery is
+# less "slow audiobook"; ceiling is still Piper/IndicTTS read-speech style.
+LENGTH_SCALE = float(os.environ.get("PIPER_LENGTH_SCALE", "0.95"))
+NOISE_SCALE = float(os.environ.get("PIPER_NOISE_SCALE", "0.8"))
+NOISE_W = float(os.environ.get("PIPER_NOISE_W", "0.95"))
 
 # Best available official Piper Hindi voices (medium quality, 22.05 kHz).
 VOICE_FILES = {

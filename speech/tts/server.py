@@ -28,10 +28,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 API_TOKEN = (os.environ.get("SPEECH_API_TOKEN") or "").strip()
 PREWARM_TTL = float(os.environ.get("TTS_PREWARM_TTL", "120"))
 PREWARM_MAX = int(os.environ.get("TTS_PREWARM_MAX", "64"))
-# Leading silence so Plivo/media can settle and the callee can lift the phone
-# before the greeting text starts (avoids "half greeting before I picked up").
-LEAD_SILENCE_MS = int(os.environ.get("TTS_LEAD_SILENCE_MS", "450"))
-LEAD_SILENCE = bytes(int(SAMPLE_RATE * (LEAD_SILENCE_MS / 1000.0) * 2))  # int16 mono
+# Leading silence only for the very start of a call (phone pickup). Mid-call
+# replies must not pay this — it added ~0.5s of dead air before every sentence.
+LEAD_SILENCE_MS = int(os.environ.get("TTS_LEAD_SILENCE_MS", "0"))
+LEAD_SILENCE = bytes(int(SAMPLE_RATE * (LEAD_SILENCE_MS / 1000.0) * 2)) if LEAD_SILENCE_MS > 0 else b""
+# Optional one-shot greeting pad (ms) when the client sends X-TTS-Lead-Silence-Ms.
+GREETING_LEAD_MS = int(os.environ.get("TTS_GREETING_LEAD_MS", "350"))
 
 
 def _auth_ok(request: Request) -> bool:
@@ -56,13 +58,11 @@ class Prewarmed:
     def append(self, chunk: bytes) -> None:
         self.chunks.append(chunk)
         self.event.set()
-        self.event.clear()
 
     def finish(self, error: str | None = None) -> None:
         self.done = True
         self.error = error
         self.event.set()
-        self.event.clear()
 
 
 def _prewarm_key(body: dict) -> tuple[str, str]:
@@ -108,17 +108,38 @@ def models():
 
 
 async def _fill_prewarm(engine: TtsEngine, voice: str, text: str, pw: Prewarmed) -> None:
-    try:
-        def run():
-            return list(engine.synthesize_pcm(voice, text))
+    """Stream chunks into the prewarm buffer as they are produced.
 
-        chunks = await asyncio.to_thread(run)
-        for chunk in chunks:
-            pw.append(chunk)
-        pw.finish()
-    except Exception as exc:
-        log.warning("prewarm failed: %s", exc)
-        pw.finish(error=str(exc))
+    Buffering the full utterance first (list(...)) made Dograh wait for the
+    entire Parler generate (~5–12s) before the first byte — killing call flow.
+    """
+    loop = asyncio.get_running_loop()
+
+    def run() -> None:
+        try:
+            for chunk in engine.synthesize_pcm(voice, text):
+                # Append from the worker thread via the event loop so waiters wake.
+                fut = asyncio.run_coroutine_threadsafe(_append_prewarm(pw, chunk), loop)
+                fut.result(timeout=120)
+            fut = asyncio.run_coroutine_threadsafe(_finish_prewarm(pw), loop)
+            fut.result(timeout=30)
+        except Exception as exc:
+            log.warning("prewarm failed: %s", exc)
+            fut = asyncio.run_coroutine_threadsafe(_finish_prewarm(pw, str(exc)), loop)
+            try:
+                fut.result(timeout=30)
+            except Exception:
+                pass
+
+    await asyncio.to_thread(run)
+
+
+async def _append_prewarm(pw: Prewarmed, chunk: bytes) -> None:
+    pw.append(chunk)
+
+
+async def _finish_prewarm(pw: Prewarmed, error: str | None = None) -> None:
+    pw.finish(error=error)
 
 
 async def _consume_prewarmed(pw: Prewarmed):
@@ -132,6 +153,11 @@ async def _consume_prewarmed(pw: Prewarmed):
             if pw.error and idx == 0:
                 raise RuntimeError(pw.error)
             return
+        pw.event.clear()
+        # Re-check after clear to avoid missing a chunk that arrived between
+        # the length check and clear (classic edge-triggered race).
+        if idx < len(pw.chunks) or pw.done:
+            continue
         await pw.event.wait()
 
 
@@ -166,6 +192,13 @@ async def speech(request: Request):
     engine: TtsEngine = request.app.state.engine
     started = time.perf_counter()
     pw = request.app.state.prewarm.get((model, text))
+    # Per-request lead silence (greeting only). Header wins; else global default.
+    try:
+        hdr_ms = int(request.headers.get("x-tts-lead-silence-ms") or "")
+    except ValueError:
+        hdr_ms = -1
+    lead_ms = hdr_ms if hdr_ms >= 0 else LEAD_SILENCE_MS
+    lead = bytes(int(SAMPLE_RATE * (lead_ms / 1000.0) * 2)) if lead_ms > 0 else b""
 
     async def live_body():
         loop = asyncio.get_running_loop()
@@ -182,8 +215,8 @@ async def speech(request: Request):
 
         threading.Thread(target=producer, daemon=True).start()
         first = True
-        if LEAD_SILENCE:
-            yield LEAD_SILENCE
+        if lead:
+            yield lead
         while True:
             chunk = await queue.get()
             if chunk is None:
@@ -201,8 +234,8 @@ async def speech(request: Request):
     async def cached_body():
         served = False
         try:
-            if LEAD_SILENCE:
-                yield LEAD_SILENCE
+            if lead:
+                yield lead
             async for chunk in _consume_prewarmed(pw):
                 served = True
                 yield chunk

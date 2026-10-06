@@ -34,7 +34,7 @@ def dograh_model_configuration(keys):
         "tts": {
             "provider": "openai",
             "base_url": settings.SPEECH_TTS_URL,
-            "model": "selfhost-hi-female-fast",
+            "model": "selfhost-hi-female-parler",
             "voice": "alloy",
             "api_key": token,
             "note": (

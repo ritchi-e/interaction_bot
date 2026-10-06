@@ -1,4 +1,4 @@
-"""TTS engine: Piper (fast VITS) for Hindi + dhee-indic-f5 for quality/English."""
+"""TTS engine: Indic Parler (Hindi streaming) + Piper + dhee-indic-f5 for English/quality."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from cache import PcmCache
+from parler_engine import ParlerEngine
 from piper_engine import PiperEngine
 from text import normalize, split_clauses
 
@@ -28,8 +29,21 @@ SAMPLE_RATE = 24000
 NFE = int(os.environ.get("TTS_NFE", "16"))
 DEVICE = os.environ.get("TTS_DEVICE", "cuda")
 FIRST_MAX_WORDS = int(os.environ.get("TTS_FIRST_CLAUSE_WORDS", "8"))
-# When 1, skip loading F5 so container starts fast (Hindi Piper only).
-PIPER_ONLY = os.environ.get("TTS_PIPER_ONLY", "0") == "1"
+# Parler is slower-than-realtime on T4, so its first clause should be shorter
+# than F5's to minimize time-to-first-audio; defaults to a bit smaller than
+# the F5 knob above but is independently tunable.
+PARLER_FIRST_CLAUSE_WORDS = int(os.environ.get("PARLER_FIRST_CLAUSE_WORDS", "6"))
+# NOTE: we tried merging short (1-2 word) clauses forward into their neighbour
+# on the theory that Indic Parler needs a few words of context to emit EOS
+# cleanly. Measured head-to-head on the live endpoint, that made things worse:
+# merging grows the *first* clause (the one TTFA depends on most), and the
+# model still tends to ride out close to whatever token budget the (now
+# bigger) clause gets instead of stopping early — so TTFA on a merged 8-word
+# first clause was ~17s vs ~4s unmerged. Short clauses are themselves fast to
+# cap out on (bounded by their own small max_new_tokens, see parler_engine),
+# so leaving `split_clauses` output as-is gives a strictly lower worst case.
+# Skip F5 when 1 — Parler (~0.9B) needs the T4 VRAM; English can fall back later.
+SKIP_F5 = os.environ.get("TTS_SKIP_F5", os.environ.get("TTS_PIPER_ONLY", "1")) == "1"
 
 
 @dataclass
@@ -47,28 +61,27 @@ class TtsEngine:
         self.model = None
         self.voices: dict[str, Voice] = {}
         self.piper = PiperEngine()
+        self.parler = ParlerEngine()
         self.cache = PcmCache(
             max_items=int(os.environ.get("TTS_CACHE_ITEMS", "256")),
             disk_dir=os.environ.get("TTS_CACHE_DIR", "/models/tts/cache"),
         )
         self._load_voices()
-        if not PIPER_ONLY:
+        if not SKIP_F5:
             self._load_model()
         else:
-            log.info("TTS_PIPER_ONLY=1 — skipping F5 load")
-        self._warm_piper()
+            log.info("TTS_SKIP_F5=1 — skipping F5 load (Parler/Piper only)")
+        self._warm_fast()
 
     def _load_voices(self) -> None:
         raw = json.loads(VOICES_JSON.read_text(encoding="utf-8"))
         for item in raw.get("voices", []):
             vid = item["id"]
             backend = item.get("backend", "f5")
-            if backend == "piper":
-                # Piper voices are registered from on-disk ONNX via PiperEngine.
+            if backend in ("piper", "parler"):
                 continue
             audio = Path(item["ref_audio"])
             if not audio.is_absolute():
-                # Prefer models volume, then image-bundled voices/.
                 for base in (VOICES_DIR, VOICES_JSON.parent):
                     candidate = base / Path(item["ref_audio"]).name
                     if candidate.exists():
@@ -92,6 +105,14 @@ class TtsEngine:
                 backend="f5",
             )
 
+        for vid, info in self.parler.voices.items():
+            self.voices[vid] = Voice(
+                id=vid,
+                ref_audio=Path(""),
+                ref_text="",
+                language=info.language,
+                backend="parler",
+            )
         for vid, info in self.piper.voices.items():
             self.voices[vid] = Voice(
                 id=vid,
@@ -102,10 +123,15 @@ class TtsEngine:
             )
 
         if not self.voices:
-            raise RuntimeError(f"no voices defined in {VOICES_JSON} and no piper models")
+            raise RuntimeError(f"no voices defined in {VOICES_JSON} and no fast models")
         log.info("voices: %s", list(self.voices))
 
-    def _warm_piper(self) -> None:
+    def _warm_fast(self) -> None:
+        for vid in list(self.parler.voices):
+            try:
+                list(self.parler.synthesize_pcm(vid, "नमस्ते।"))
+            except Exception as exc:
+                log.warning("parler warm-up failed for %s: %s", vid, exc)
         for vid in list(self.piper.voices):
             try:
                 list(self.piper.synthesize_pcm(vid, "नमस्ते।"))
@@ -121,8 +147,6 @@ class TtsEngine:
         )
         log.info("loading TTS from %s on %s nfe=%d", repo, DEVICE, NFE)
 
-        # Load IndicF5 wrapper directly — AutoModel.from_pretrained uses meta-device
-        # init on recent transformers and breaks Vocos / torchaudio filterbank setup.
         model_py = Path(repo) / "model.py"
         if not model_py.exists():
             raise FileNotFoundError(f"TTS model.py missing under {repo}")
@@ -139,7 +163,6 @@ class TtsEngine:
         if hasattr(self.model, "to"):
             self.model.to(DEVICE)
         self.model.eval()
-        # Optional compile — ignore failures on older GPUs / torch builds.
         if os.environ.get("TTS_TORCH_COMPILE", "0") == "1" and DEVICE.startswith("cuda"):
             try:
                 self.model = torch.compile(self.model, mode="reduce-overhead")
@@ -147,7 +170,6 @@ class TtsEngine:
             except Exception as exc:
                 log.warning("torch.compile skipped: %s", exc)
 
-        # Warm-up each F5 system voice once so first calls stay fast.
         for voice in self.voices.values():
             if voice.backend != "f5" or not voice.ref_audio.exists():
                 continue
@@ -163,6 +185,7 @@ class TtsEngine:
             return self.voices[model_field]
         for key in (
             model_field or "",
+            "selfhost-hi-female-parler",
             "selfhost-hi-female-fast",
             "selfhost-hi-female",
             "selfhost-en-female",
@@ -184,7 +207,7 @@ class TtsEngine:
         if not clean:
             return
 
-        if voice.backend == "piper":
+        if voice.backend in ("piper", "parler"):
             if use_cache:
                 hit = self.cache.get(voice.id, clean)
                 if hit is not None:
@@ -192,8 +215,31 @@ class TtsEngine:
                     for i in range(0, len(hit), step):
                         yield hit[i : i + step]
                     return
+            engine = self.parler if voice.backend == "parler" else self.piper
+            if voice.backend == "parler":
+                # Parler is slower than realtime on T4, so within one call we
+                # never drip chunks to the phone as they decode (that's what
+                # caused word...gap...word). Instead we buffer fully *per
+                # clause* and pipeline clause-by-clause: clause 1 (short, by
+                # construction) finishes generating fast and starts playing
+                # immediately, while clause 2+ generate in the background on
+                # this same producer thread, overlapping with clause 1's
+                # network/playback time. Any residual gap lands at a natural
+                # pause point (comma/period) instead of mid-word, so it reads
+                # as a breath, not a glitch.
+                clauses = split_clauses(clean, first_max_words=PARLER_FIRST_CLAUSE_WORDS)
+                collected = bytearray()
+                step = 9600  # 200ms slices, emitted back-to-back
+                for clause in clauses:
+                    pcm = b"".join(engine.synthesize_pcm(voice.id, clause))
+                    collected.extend(pcm)
+                    for i in range(0, len(pcm), step):
+                        yield pcm[i : i + step]
+                if use_cache and collected:
+                    self.cache.put(voice.id, clean, bytes(collected))
+                return
             collected = bytearray()
-            for chunk in self.piper.synthesize_pcm(voice.id, clean):
+            for chunk in engine.synthesize_pcm(voice.id, clean):
                 collected.extend(chunk)
                 yield chunk
             if use_cache and collected:
@@ -203,7 +249,6 @@ class TtsEngine:
         if use_cache:
             hit = self.cache.get(voice.id, clean)
             if hit is not None:
-                # Stream cache in ~100ms chunks (24kHz * 2 * 0.1 = 4800 bytes).
                 step = 4800
                 for i in range(0, len(hit), step):
                     yield hit[i : i + step]
@@ -222,7 +267,7 @@ class TtsEngine:
 
     def _synth_clause(self, voice: Voice, clause: str) -> bytes:
         if self.model is None:
-            raise RuntimeError("F5 model not loaded; use a *-fast Piper voice or unset TTS_PIPER_ONLY")
+            raise RuntimeError("F5 model not loaded; use a Parler/Piper voice or unset TTS_SKIP_F5")
         if not voice.ref_audio.exists():
             raise FileNotFoundError(
                 f"reference audio missing for {voice.id}: {voice.ref_audio}. "
@@ -236,7 +281,6 @@ class TtsEngine:
                 ref_text=voice.ref_text,
                 nfe_step=NFE,
             )
-        # Accept numpy / torch / list.
         if hasattr(audio, "detach"):
             audio = audio.detach().cpu().numpy()
         arr = np.asarray(audio, dtype=np.float32).reshape(-1)
