@@ -34,12 +34,12 @@ def dograh_model_configuration(keys):
         "tts": {
             "provider": "openai",
             "base_url": settings.SPEECH_TTS_URL,
-            "model": "selfhost-hi-female-parler",
+            "model": "selfhost-hi-female-indic",
             "voice": "alloy",
             "api_key": token,
             "note": (
-                "Self-hosted speech-tts (dhee-indic-f5) with system voices "
-                "(Hindi/English × female/male). See apps/agents/model_overrides.py."
+                "Self-hosted speech-tts (Indic-TTS FastPitch Hindi default; "
+                "Parler/Piper/F5 also available). See apps/agents/model_overrides.py."
             ),
         },
         "telephony": {"provider": "plivo", "caller_id_format": "+91XXXXXXXXXX"},

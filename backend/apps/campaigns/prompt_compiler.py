@@ -139,7 +139,7 @@ def compile_system_prompt(campaign):
     if campaign.language == "hi":
         lead = (
             "- Begin every reply with one finished sentence of two to four words, "
-            "such as जी, बिल्कुल। or समझ गई। The answer is the next sentence, not this one.\n"
+            "such as जी, बिल्कुल। or हाँ। The answer is the next sentence, not this one.\n"
         )
     return (
         f"You are {context.agent_name}, {role} for {business_name}.\n"

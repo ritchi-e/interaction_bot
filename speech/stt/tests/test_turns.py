@@ -12,6 +12,7 @@ def test_start_update_eager_end_happy_path():
             eager_eot_threshold=0.5,
             eot_threshold=0.7,
             use_smart_turn=True,
+            transcript_stable_ms=100,
         )
     )
     events = []
@@ -38,6 +39,7 @@ def test_turn_resumed_after_eager():
             eot_timeout_ms=2000,
             eager_eot_threshold=0.5,
             eot_threshold=0.9,
+            transcript_stable_ms=50,
         )
     )
     state.on_audio(is_speech=True, dt_ms=60, transcript="hello", eot_prob=None)
@@ -56,8 +58,35 @@ def test_hard_timeout_forces_end_without_smart_turn():
             eot_timeout_ms=400,
             eager_silence_ms=200,
             use_smart_turn=False,
+            transcript_stable_ms=50,
         )
     )
+
+
+def test_unstable_transcript_delays_end_until_stable_or_timeout():
+    state = TurnState(
+        config=TurnConfig(
+            start_speech_ms=50,
+            eager_silence_ms=100,
+            eot_silence_ms=200,
+            eot_timeout_ms=800,
+            eager_eot_threshold=0.5,
+            eot_threshold=0.7,
+            use_smart_turn=True,
+            transcript_stable_ms=300,
+        )
+    )
+    state.on_audio(is_speech=True, dt_ms=60, transcript="अभी तो", eot_prob=None)
+    # ASR still growing during silence — must not EndOfTurn yet.
+    events = state.on_audio(is_speech=False, dt_ms=250, transcript="अभी तो नहीं", eot_prob=0.95)
+    assert not any(e[0] == Event.END_OF_TURN for e in events)
+    events = state.on_audio(is_speech=False, dt_ms=250, transcript="अभी तो नहीं चाहिए", eot_prob=0.95)
+    assert not any(e[0] == Event.END_OF_TURN for e in events)
+    # Stable long enough + silence -> end.
+    events = state.on_audio(
+        is_speech=False, dt_ms=350, transcript="अभी तो नहीं चाहिए", eot_prob=0.95
+    )
+    assert any(e[0] == Event.END_OF_TURN for e in events)
     state.on_audio(is_speech=True, dt_ms=60, transcript="ok", eot_prob=None)
     events = state.on_audio(is_speech=False, dt_ms=420, transcript="ok", eot_prob=None)
     assert any(e[0] == Event.END_OF_TURN for e in events)

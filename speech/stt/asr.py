@@ -88,8 +88,13 @@ class AsrEngine:
         if vad_model.exists():
             vad_config = sherpa_onnx.VadModelConfig()
             vad_config.silero_vad.model = str(vad_model)
-            vad_config.silero_vad.min_silence_duration = 0.15
-            vad_config.silero_vad.min_speech_duration = 0.1
+            # Slightly longer min silence reduces choppy cuts on Hindi pauses.
+            vad_config.silero_vad.min_silence_duration = float(
+                os.environ.get("STT_VAD_MIN_SILENCE_S", "0.25")
+            )
+            vad_config.silero_vad.min_speech_duration = float(
+                os.environ.get("STT_VAD_MIN_SPEECH_S", "0.1")
+            )
             vad_config.sample_rate = SAMPLE_RATE
             self._vad_config = vad_config
             log.info("silero VAD loaded from %s", vad_model)
@@ -123,7 +128,20 @@ class AsrEngine:
                 log.debug("stream language option unsupported: %s", exc)
         return StreamHandle(stream=stream, language=prompt, vad=self._new_vad())
 
+    def reset_stream(self, handle: StreamHandle) -> None:
+        """Replace the OnlineRecognizer stream after EndOfTurn.
+
+        get_result() is cumulative for the life of a stream. A fresh stream
+        keeps the next user turn from replaying the previous transcript.
+        """
+        lang = handle.language or "auto"
+        fresh = self.create_stream(lang)
+        handle.stream = fresh.stream
+        if handle.vad is None:
+            handle.vad = fresh.vad
+
     def accept_pcm16(self, handle: StreamHandle, pcm16: bytes, input_rate: int) -> None:
+        pcm16 = _agc_pcm16(pcm16)
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
         if input_rate != SAMPLE_RATE and len(audio):
             audio = _resample(audio, input_rate, SAMPLE_RATE)
@@ -157,6 +175,7 @@ class AsrEngine:
         Use ``is_speech_detected()`` for the live flag, and drain finished
         segments so the queue does not grow.
         """
+        pcm16 = _agc_pcm16(pcm16)
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
         if input_rate != SAMPLE_RATE and len(audio):
             audio = _resample(audio, input_rate, SAMPLE_RATE)
@@ -170,6 +189,7 @@ class AsrEngine:
             # Telephony echo of the bot is usually quieter than near-end speech.
             # Require a modest energy floor even when Silero flips true, so the
             # bot's own playback on the line does not become a fake user turn.
+            # AGC above lifts quiet WhatsApp uplink before this check.
             if speaking:
                 mean_abs = float(np.abs(audio).mean()) if len(audio) else 0.0
                 speaking = mean_abs >= float(os.environ.get("STT_SPEECH_MIN_ABS", "0.012"))
@@ -201,6 +221,36 @@ def _resample(audio: np.ndarray, src: int, dst: int) -> np.ndarray:
     x_old = np.linspace(0.0, 1.0, num=len(audio), endpoint=False)
     x_new = np.linspace(0.0, 1.0, num=n, endpoint=False)
     return np.interp(x_new, x_old, audio).astype(np.float32)
+
+
+def _agc_pcm16(pcm16: bytes) -> bytes:
+    """Boost quiet telephony uplink; leave loud speech alone.
+
+    WhatsApp/PSTN callers often arrive well below the VAD energy floor. A
+    gentle peak-targeting gain improves recognition without changing the
+    floor defaults that reject bot echo.
+    """
+    if not pcm16 or os.environ.get("STT_AGC", "1") in ("0", "false", "False"):
+        return pcm16
+    n = len(pcm16) - (len(pcm16) % 2)
+    if n < 2:
+        return pcm16
+    audio = np.frombuffer(memoryview(pcm16)[:n], dtype=np.int16).astype(np.float32)
+    peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
+    if peak < 1.0:
+        return pcm16
+    peak_n = peak / 32768.0
+    target = float(os.environ.get("STT_AGC_TARGET_PEAK", "0.35"))
+    max_gain = float(os.environ.get("STT_AGC_MAX_GAIN", "3.0"))
+    if peak_n >= target:
+        return pcm16
+    gain = min(max_gain, target / peak_n)
+    if gain <= 1.05:
+        return pcm16
+    out = np.clip(audio * gain, -32767, 32767).astype(np.int16).tobytes()
+    if n < len(pcm16):
+        out += pcm16[n:]
+    return out
 
 
 def _maybe_load_smart_turn(path: Path):

@@ -1,4 +1,4 @@
-"""TTS engine: Indic Parler (Hindi streaming) + Piper + dhee-indic-f5 for English/quality."""
+"""TTS engine: Indic-TTS FastPitch (default Hindi) + Parler + Piper + F5."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from cache import PcmCache
+from indic_tts_engine import IndicTtsEngine
 from parler_engine import ParlerEngine
 from piper_engine import PiperEngine
 from text import normalize, split_clauses
@@ -42,8 +43,9 @@ PARLER_FIRST_CLAUSE_WORDS = int(os.environ.get("PARLER_FIRST_CLAUSE_WORDS", "6")
 # first clause was ~17s vs ~4s unmerged. Short clauses are themselves fast to
 # cap out on (bounded by their own small max_new_tokens, see parler_engine),
 # so leaving `split_clauses` output as-is gives a strictly lower worst case.
-# Skip F5 when 1 — Parler (~0.9B) needs the T4 VRAM; English can fall back later.
+# Skip F5 when 1 — FastPitch/Parler need the T4 VRAM; English can fall back later.
 SKIP_F5 = os.environ.get("TTS_SKIP_F5", os.environ.get("TTS_PIPER_ONLY", "1")) == "1"
+_FAST_BACKENDS = frozenset({"piper", "parler", "indic"})
 
 
 @dataclass
@@ -60,6 +62,7 @@ class TtsEngine:
         self._lock = threading.Lock()
         self.model = None
         self.voices: dict[str, Voice] = {}
+        self.indic = IndicTtsEngine()
         self.piper = PiperEngine()
         self.parler = ParlerEngine()
         self.cache = PcmCache(
@@ -70,7 +73,7 @@ class TtsEngine:
         if not SKIP_F5:
             self._load_model()
         else:
-            log.info("TTS_SKIP_F5=1 — skipping F5 load (Parler/Piper only)")
+            log.info("TTS_SKIP_F5=1 — skipping F5 load (Indic-TTS/Parler/Piper only)")
         self._warm_fast()
 
     def _load_voices(self) -> None:
@@ -78,7 +81,7 @@ class TtsEngine:
         for item in raw.get("voices", []):
             vid = item["id"]
             backend = item.get("backend", "f5")
-            if backend in ("piper", "parler"):
+            if backend in _FAST_BACKENDS:
                 continue
             audio = Path(item["ref_audio"])
             if not audio.is_absolute():
@@ -105,6 +108,14 @@ class TtsEngine:
                 backend="f5",
             )
 
+        for vid, info in self.indic.voices.items():
+            self.voices[vid] = Voice(
+                id=vid,
+                ref_audio=Path(""),
+                ref_text="",
+                language=info.language,
+                backend="indic",
+            )
         for vid, info in self.parler.voices.items():
             self.voices[vid] = Voice(
                 id=vid,
@@ -127,6 +138,11 @@ class TtsEngine:
         log.info("voices: %s", list(self.voices))
 
     def _warm_fast(self) -> None:
+        for vid in list(self.indic.voices):
+            try:
+                list(self.indic.synthesize_pcm(vid, "नमस्ते।"))
+            except Exception as exc:
+                log.warning("indic-tts warm-up failed for %s: %s", vid, exc)
         for vid in list(self.parler.voices):
             try:
                 list(self.parler.synthesize_pcm(vid, "नमस्ते।"))
@@ -185,6 +201,7 @@ class TtsEngine:
             return self.voices[model_field]
         for key in (
             model_field or "",
+            "selfhost-hi-female-indic",
             "selfhost-hi-female-parler",
             "selfhost-hi-female-fast",
             "selfhost-hi-female",
@@ -194,6 +211,15 @@ class TtsEngine:
             if key in self.voices:
                 return self.voices[key]
         raise KeyError(model_field)
+
+    def _fast_engine(self, backend: str):
+        if backend == "indic":
+            return self.indic
+        if backend == "parler":
+            return self.parler
+        if backend == "piper":
+            return self.piper
+        raise KeyError(backend)
 
     def synthesize_pcm(
         self,
@@ -207,7 +233,7 @@ class TtsEngine:
         if not clean:
             return
 
-        if voice.backend in ("piper", "parler"):
+        if voice.backend in _FAST_BACKENDS:
             if use_cache:
                 hit = self.cache.get(voice.id, clean)
                 if hit is not None:
@@ -215,7 +241,7 @@ class TtsEngine:
                     for i in range(0, len(hit), step):
                         yield hit[i : i + step]
                     return
-            engine = self.parler if voice.backend == "parler" else self.piper
+            engine = self._fast_engine(voice.backend)
             if voice.backend == "parler":
                 # Parler is slower than realtime on T4, so within one call we
                 # never drip chunks to the phone as they decode (that's what
@@ -267,7 +293,9 @@ class TtsEngine:
 
     def _synth_clause(self, voice: Voice, clause: str) -> bytes:
         if self.model is None:
-            raise RuntimeError("F5 model not loaded; use a Parler/Piper voice or unset TTS_SKIP_F5")
+            raise RuntimeError(
+                "F5 model not loaded; use an Indic-TTS/Parler/Piper voice or unset TTS_SKIP_F5"
+            )
         if not voice.ref_audio.exists():
             raise FileNotFoundError(
                 f"reference audio missing for {voice.id}: {voice.ref_audio}. "

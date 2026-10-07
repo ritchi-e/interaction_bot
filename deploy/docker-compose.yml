@@ -189,8 +189,17 @@ services:
       HF_HOME: /models/hf-cache
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+      # AI4Bharat Indic-TTS FastPitch+HiFi-GAN (default Hindi voices).
+      INDIC_TTS_DIR: ${INDIC_TTS_DIR:-/models/tts/indic-tts/hi}
+      INDIC_TTS_SPEED: ${INDIC_TTS_SPEED:-1.0}
+      INDIC_TTS_GAIN: ${INDIC_TTS_GAIN:-1.0}
+      INDIC_TTS_FEMALE_GAIN: ${INDIC_TTS_FEMALE_GAIN:-0.85}
+      INDIC_TTS_FEMALE_SOFTEN: ${INDIC_TTS_FEMALE_SOFTEN:-1}
+      INDIC_TTS_FEMALE_LP_HZ: ${INDIC_TTS_FEMALE_LP_HZ:-3200}
       # Local path after ModelScope/HF fetch; falls back to HF hub id.
       PARLER_REPO_ID: ${PARLER_REPO_ID:-/models/tts/indic-parler-tts}
+      # Off by default so FastPitch owns the T4; set PARLER_DISABLED=0 to load Divya/Rohit.
+      PARLER_DISABLED: ${PARLER_DISABLED:-1}
       # Divya is natively quiet; 3.2× brings her near Rohit telephony loudness.
       PARLER_FEMALE_GAIN: ${PARLER_FEMALE_GAIN:-3.2}
       PARLER_MALE_GAIN: ${PARLER_MALE_GAIN:-1.15}

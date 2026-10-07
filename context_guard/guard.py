@@ -64,23 +64,53 @@ def prepare_messages(messages, prompt):
     return [{"role": "system", "content": prompt}, *rest]
 
 
-# English, Hindi, and the romanised Hindi Deepgram often returns on these calls.
-# A bare "thank you" is intentionally absent: people say it mid-conversation.
+# Clear end-of-call phrases (safe to match anywhere in the user turn).
 DONE_RE = re.compile(
     r"("
     r"\b(that will be all|that'?s all|that is all|nothing else|no more questions|"
     r"goodbye|good bye|\bbye\b|that'?s it|that is it|no thanks|no thank you|"
-    r"i'?m good|im good|all good|that'?s fine|nothing more)\b"
-    r"|और कुछ नहीं|कुछ नहीं|नहीं चाहिए|बस इतना|बस हो गया|रहने दो|"
-    r"अलविदा|गुड ?बाय|कॉल काट|फोन रख"
-    r"|\b(bas itna|bas ho gaya|aur kuch nahi|kuch nahi|nahi chahiye|"
-    r"rehne do|alvida|alvida|ok bye)\b"
+    r"i'?m good|im good|all good|that'?s fine|nothing more|"
+    r"not interested|no interest|hang up|cut the call|end the call|stop calling)\b"
+    r"|और कुछ नहीं|कुछ नहीं|नहीं चाहिए|मुझे नहीं चाहिए|"
+    r"बस इतना|बस हो गया|हो गया बस|रहने दो|"
+    r"रुचि नहीं|इंटरेस्ट नहीं|कॉल मत कर|फोन मत कर|"
+    r"अलविदा|गुड ?बाय|कॉल काट|कॉल काटो|फोन काट|फोन रख|काट दो|बंद करो"
+    r"|\b(bas itna|bas ho gaya|ho gaya bas|aur kuch nahi|kuch nahi|"
+    r"nahi chahiye|nahin chahiye|interested nahi|interest nahi|"
+    r"rehne do|alvida|ok bye|cut (the )?call|hang up)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Softer deferrals — only when they are the *last* clause (not mid-question).
+SOFT_DONE_RE = re.compile(
+    r"("
+    r"\b(call me later|maybe later|not now|later please|call later)\b"
+    r"|अभी नहीं|बाद में|बाद मे|छोड़ो|मत बताओ|मत बता"
+    r"|\b(abhi nahi|baad mein|baad me|chhodo|mat batao|mat bata)\b"
     r")",
     re.IGNORECASE,
 )
 
 # The whole utterance is a refusal, with nothing else asked.
 BARE_NO_RE = re.compile(r"^(no|nope|nah|nahi|nahin|na|नहीं|ना)[\s.!?।]*$", re.IGNORECASE)
+
+# Whole-utterance thanks / soft close. Mid-turn "thank you, what about EMI?"
+# still has a question so it will not match.
+BARE_THANKS_RE = re.compile(
+    r"^("
+    r"(ok|okay|ठीक|ठीक है|haan|haa|हाँ|हां|yes|ji|जी)?[\s,]*"
+    r"(thanks|thank you|thankyou|thx|धन्यवाद|शुक्रिया|थैंक्स|"
+    r"dhanyavad|dhanyawad|dhanyavaad|shukriya|shukriyaa)"
+    r"|"
+    r"(thanks|thank you|thankyou|thx|धन्यवाद|शुक्रिया|थैंक्स|"
+    r"dhanyavad|dhanyawad|dhanyavaad|shukriya|shukriyaa)"
+    r"[\s,]*(ok|okay|ठीक|ठीक है|ji|जी)?"
+    r")[\s.!?।,]*$",
+    re.IGNORECASE,
+)
+
+_CLAUSE_SPLIT = re.compile(r"[.!?।\n]+|,\s+")
 
 WANT_RE = re.compile(
     r"("
@@ -107,14 +137,51 @@ def _last_user_text(messages):
     return last
 
 
+def _tail_clauses(text, limit=2):
+    """Last clause(s) — hangup words often arrive after earlier questions in STT."""
+    parts = [p.strip() for p in _CLAUSE_SPLIT.split(text or "") if p and p.strip()]
+    if not parts:
+        return []
+    return parts[-limit:]
+
+
+def _utterance_is_done(text, *, soft=False):
+    text = (text or "").strip()
+    if not text:
+        return False
+    if DONE_RE.search(text):
+        return True
+    if soft and SOFT_DONE_RE.search(text):
+        return True
+    if BARE_NO_RE.match(text):
+        return True
+    if BARE_THANKS_RE.match(text):
+        return True
+    return bool(re.fullmatch(r"(bas|bass|बस)[\s.!?।]*", text, re.IGNORECASE))
+
+
 def caller_is_done(messages):
-    """The caller ended the conversation. A lone thank-you is not enough."""
+    """The caller ended the conversation (goodbye, bare no, or bare thanks).
+
+    Prefer the last clause so a stale/cumulative STT transcript that still
+    contains an earlier question does not block hangup ("…age limit? धन्यवाद").
+    """
     last = _last_user_text(messages).strip()
-    if DONE_RE.search(last):
+    if not last:
+        return False
+    if _utterance_is_done(last, soft=False):
         return True
-    if BARE_NO_RE.match(last):
+    # Only the final clause: an earlier "धन्यवाद" before a new question is not done.
+    tails = _tail_clauses(last, limit=1)
+    if tails and _utterance_is_done(tails[0], soft=True):
         return True
-    return bool(re.fullmatch(r"(bas|bass|बस)[\s.!?।]*", last, re.IGNORECASE))
+    # Last few words only (romanised STT often has no punctuation).
+    words = last.split()
+    if len(words) > 3:
+        tail = " ".join(words[-4:])
+        if _utterance_is_done(tail, soft=True):
+            return True
+    return False
 
 
 def is_farewell(text):
@@ -132,9 +199,9 @@ def closing_line(instruction):
 
 def caller_wants_more(messages):
     """They agreed to hear the offer or asked a question. Do not hang up."""
-    last = _last_user_text(messages)
-    if DONE_RE.search(last):
+    if caller_is_done(messages):
         return False
+    last = _last_user_text(messages)
     return bool(WANT_RE.search(last))
 
 

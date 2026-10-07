@@ -27,3 +27,10 @@ onnxruntime>=1.19.0
 # because PyPI may lag the streaming API.
 sentencepiece>=0.2.0
 protobuf>=4.25.0
+# AI4Bharat Indic-TTS (FastPitch+HiFi-GAN) via Coqui TTS. Pin in Dockerfile
+# (TTS==0.22.0) so rebuilds stay reproducible; listed here for local installs.
+# TTS>=0.22.0,<0.23.0
+gruut>=2.2.3
+anyascii>=0.3.0
+coqpit>=0.0.17
+trainer>=0.0.36

@@ -1,6 +1,20 @@
 {
   "voices": [
     {
+      "id": "selfhost-hi-female-indic",
+      "label": "Hindi · Female (Indic-TTS FastPitch)",
+      "backend": "indic",
+      "language": "hi",
+      "gender": "female"
+    },
+    {
+      "id": "selfhost-hi-male-indic",
+      "label": "Hindi · Male (Indic-TTS FastPitch)",
+      "backend": "indic",
+      "language": "hi",
+      "gender": "male"
+    },
+    {
       "id": "selfhost-hi-female-parler",
       "label": "Hindi · Female (Indic Parler · Divya)",
       "backend": "parler",

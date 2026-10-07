@@ -11,11 +11,12 @@ class AgentProfile(TimeStampedModel):
     greeting = models.TextField(blank=True, default="Hello, this is a call about the message you replied to.")
     closing_line = models.TextField(blank=True, default="Thank you for your time. Goodbye.")
     allow_interrupt = models.BooleanField(
-        default=False,
+        default=True,
         help_text=(
-            "When True, Dograh keeps the mic open while the bot speaks (barge-in). "
-            "On PSTN that also lets the bot hear its own echo as the caller, so "
-            "default False for telephony."
+            "When True, Dograh keeps the mic open while the bot speaks (barge-in), "
+            "so callers can interrupt mid-sentence like a natural Flux conversation. "
+            "STT already applies an energy floor to ignore quieter line echo; "
+            "set False only if PSTN echo still causes false user turns."
         ),
     )
     max_call_seconds = models.PositiveIntegerField(default=300)

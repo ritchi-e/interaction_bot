@@ -26,15 +26,17 @@ class TurnConfig:
     # Throttle partial Update events.
     update_interval_ms: float = 150.0
     # Silence before considering EagerEndOfTurn / EndOfTurn.
-    eager_silence_ms: float = 200.0
-    eot_silence_ms: float = 300.0
+    eager_silence_ms: float = 400.0
+    eot_silence_ms: float = 550.0
     # Hard cap on silence before forcing EndOfTurn.
-    eot_timeout_ms: float = 1200.0
+    eot_timeout_ms: float = 3500.0
     # Smart-turn probability thresholds (0–1). When smart-turn is unavailable,
     # silence alone is enough.
-    eager_eot_threshold: float = 0.5
-    eot_threshold: float = 0.7
+    eager_eot_threshold: float = 0.6
+    eot_threshold: float = 0.85
     use_smart_turn: bool = True
+    # Do not commit EndOfTurn while ASR text is still growing (unless timeout).
+    transcript_stable_ms: float = 280.0
 
 
 @dataclass
@@ -48,6 +50,7 @@ class TurnState:
     last_update_ms: float = 0.0
     eager_sent: bool = False
     elapsed_ms: float = 0.0
+    stable_ms: float = 0.0
     languages: list[str] = field(default_factory=lambda: ["hi"])
 
     def reset_turn(self) -> None:
@@ -58,6 +61,7 @@ class TurnState:
         self.transcript = ""
         self.last_update_ms = 0.0
         self.eager_sent = False
+        self.stable_ms = 0.0
 
     def on_audio(
         self,
@@ -75,7 +79,11 @@ class TurnState:
         events: list[tuple[Event, dict[str, Any]]] = []
         text = (transcript or "").strip()
         if text:
-            self.transcript = text
+            if text == self.transcript:
+                self.stable_ms += dt_ms
+            else:
+                self.transcript = text
+                self.stable_ms = 0.0
 
         if is_speech:
             self.speech_ms += dt_ms
@@ -122,14 +130,16 @@ class TurnState:
                 self.reset_turn()
             return events
 
-        timeout = min(self.config.eot_timeout_ms, max(self.config.eot_silence_ms, 1.0))
+        timeout = max(self.config.eot_timeout_ms, self.config.eot_silence_ms)
         smart = eot_prob if (self.config.use_smart_turn and eot_prob is not None) else 1.0
+        stable = self.stable_ms >= self.config.transcript_stable_ms
 
         if (
             not self.eager_sent
             and self.silence_ms >= self.config.eager_silence_ms
             and smart >= self.config.eager_eot_threshold
             and self.transcript.strip()
+            and stable
         ):
             events.append(
                 (
@@ -139,7 +149,11 @@ class TurnState:
             )
             self.eager_sent = True
 
-        end_ready = self.silence_ms >= self.config.eot_silence_ms and smart >= self.config.eot_threshold
+        end_ready = (
+            self.silence_ms >= self.config.eot_silence_ms
+            and smart >= self.config.eot_threshold
+            and stable
+        )
         force_end = self.silence_ms >= timeout
         if end_ready or force_end:
             if self.transcript.strip():

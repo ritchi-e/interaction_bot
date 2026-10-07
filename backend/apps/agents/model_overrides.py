@@ -5,8 +5,9 @@ campaign's speech language and voice travel as a per-workflow
 ``workflow_configurations.model_overrides`` layered on top of that shared base.
 
 STT talks the Deepgram Flux protocol to our ``speech-stt`` container
-(Nemotron). TTS talks the OpenAI speech API to ``speech-tts`` (Indic Parler-TTS streaming for
-Hindi by default, Piper as fallback, dhee-indic-f5 for English / quality) using
+(Nemotron). TTS talks the OpenAI speech API to ``speech-tts`` (AI4Bharat
+Indic-TTS FastPitch+HiFi-GAN for Hindi by default; Parler/Piper remain
+available as alternate voice ids; dhee-indic-f5 for English / quality) using
 system voice IDs. Hindi campaigns already allow English loanwords
 (code-switching); there is no separate Hinglish language mode.
 """
@@ -14,11 +15,11 @@ system voice IDs. Hindi campaigns already allow English loanwords
 from django.conf import settings
 
 # System voices shipped in speech/tts/voices/voices.json. Users pick gender in
-# the UI; language comes from the campaign. Hindi defaults to Indic Parler
-# (Divya/Rohit) with streaming; English stays on F5 when enabled.
+# the UI; language comes from the campaign. Hindi defaults to Indic-TTS
+# FastPitch (low latency on T4); English stays on F5 when enabled.
 _VOICE_IDS = {
-    ("hi", "female"): "selfhost-hi-female-parler",
-    ("hi", "male"): "selfhost-hi-male-parler",
+    ("hi", "female"): "selfhost-hi-female-indic",
+    ("hi", "male"): "selfhost-hi-male-indic",
     ("en_in", "female"): "selfhost-en-female",
     ("en_in", "male"): "selfhost-en-male",
 }
@@ -95,7 +96,7 @@ def rumik_voice_model_for(campaign_or_language):
 
 
 def build_model_overrides(campaign, keys=None):
-    # max_user_idle_timeout: with Piper Hindi TTS, bot speech finishes quickly.
+    # max_user_idle_timeout: Indic-TTS FastPitch finishes quickly on the T4.
     # 12s is enough for the caller to answer after the greeting; 30s felt like
     # a dead line when STT missed the first reply.
     return {

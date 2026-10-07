@@ -7,12 +7,16 @@ sentence of the model output before it is returned.
 
 import asyncio
 import json
+import logging
 import os
 import re
+import time
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+
+log = logging.getLogger("context_guard")
 
 from guard import (
     SAFE_FALLBACK,
@@ -25,6 +29,7 @@ from guard import (
     force_sampling,
     guard_text,
     is_farewell,
+    message_text,
     prepare_messages,
     split_sentences,
     take_complete,
@@ -251,6 +256,31 @@ async def chat_completions(request: Request):
     ending = caller_is_done(messages) and not closing
     voice_model = policy.get("voice_model") or ""
 
+    # Hang up immediately — do not ask the LLM (it tends to re-answer the
+    # last question when STT text is messy, instead of calling done).
+    if ending:
+        last_user = ""
+        for message in messages or []:
+            if message.get("role") == "user":
+                last_user = message_text(message)
+        log.info("caller done -> hangup user=%r", (last_user or "")[:160])
+
+        async def hangup_now():
+            yield chunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "call_done",
+                        "type": "function",
+                        "function": {"name": "done", "arguments": "{}"},
+                    }
+                ]
+            )
+            yield chunk(finish="stop")
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(hangup_now(), media_type="text/event-stream")
+
     async def start_voice(text):
         """Optionally prewarm the first sentence — skipped for Parler.
 
@@ -297,12 +327,18 @@ async def chat_completions(request: Request):
         handed_off = False
         spoke = False
         handoff_indexes = set()
+        t0 = time.perf_counter()
+        ttft_ms: float | None = None
+        out_chars = 0
 
         def speak(text):
-            nonlocal spoke
+            nonlocal spoke, ttft_ms, out_chars
             if not text:
                 return None
             spoke = True
+            out_chars += len(text)
+            if ttft_ms is None:
+                ttft_ms = (time.perf_counter() - t0) * 1000
             return chunk(text if text.endswith(" ") else text + " ")
 
         async with httpx.AsyncClient(timeout=None) as client:
@@ -355,6 +391,14 @@ async def chat_completions(request: Request):
                     if blocked_now:
                         blocked = True
                         buffer = ""
+        total_ms = (time.perf_counter() - t0) * 1000
+        log.info(
+            "llm stream ttft=%.0fms total=%.0fms chars=%d model=%s",
+            ttft_ms if ttft_ms is not None else -1,
+            total_ms,
+            out_chars,
+            rewritten.get("model") or MODEL_NAME,
+        )
         if buffer.strip() and not blocked and not ending:
             spoken, _rest, violations, _blocked = screen_piece(
                 buffer, facts, forbidden, competitors, handoff, flush=True

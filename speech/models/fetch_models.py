@@ -54,6 +54,12 @@ PIPER_VOICES = (
     ("hi_IN-priyamvada-medium", "hi/hi_IN/priyamvada/medium"),
     ("hi_IN-rohan-medium", "hi/hi_IN/rohan/medium"),
 )
+# AI4Bharat Indic-TTS FastPitch+HiFi-GAN Hindi checkpoint (~1.4GB zip).
+INDIC_TTS_ZIP_URL = os.environ.get(
+    "INDIC_TTS_ZIP_URL",
+    "https://github.com/AI4Bharat/Indic-TTS/releases/download/"
+    "v1-checkpoints-release/hi.zip",
+)
 
 
 def _sha256(path: Path) -> str:
@@ -213,6 +219,72 @@ def fetch_piper() -> dict:
     return {"piper_dir": str(dest), "voices": got}
 
 
+def fetch_indic_tts() -> dict:
+    """Download AI4Bharat Hindi FastPitch + HiFi-GAN checkpoints."""
+    import zipfile
+
+    dest = MODELS_DIR / "tts" / "indic-tts"
+    marker = dest / "hi" / "fastpitch" / "best_model.pth"
+    nested = dest / "hi" / "hi" / "fastpitch" / "best_model.pth"
+    if marker.exists() or nested.exists():
+        _patch_indic_tts_speakers_paths(dest)
+        return {"indic_tts_dir": str(dest), "source": "existing"}
+
+    dest.mkdir(parents=True, exist_ok=True)
+    archive = MODELS_DIR / "tts" / "indic-tts-hi.zip"
+    try:
+        if not archive.exists() or archive.stat().st_size < 1_000_000:
+            _download(INDIC_TTS_ZIP_URL, archive)
+        print(f"unpacking Indic-TTS Hindi -> {dest}")
+        with zipfile.ZipFile(archive, "r") as zf:
+            zf.extractall(dest)
+        # Normalize accidental hi/hi nesting from some zip layouts.
+        if nested.exists() and not marker.exists():
+            inner = dest / "hi" / "hi"
+            outer = dest / "hi"
+            for child in inner.iterdir():
+                target = outer / child.name
+                if not target.exists():
+                    child.rename(target)
+        if marker.exists() or nested.exists():
+            _patch_indic_tts_speakers_paths(dest)
+            return {"indic_tts_dir": str(dest), "source": "github-release"}
+    except Exception as exc:
+        print(f"WARNING: Indic-TTS download failed ({exc})")
+    return {"indic_tts_dir": str(dest), "source": "missing"}
+
+
+def _patch_indic_tts_speakers_paths(dest: Path) -> None:
+    """Rewrite training-time speakers_file paths to the live volume location."""
+    hi = dest / "hi"
+    if (hi / "hi" / "fastpitch" / "speakers.pth").exists() and not (
+        hi / "fastpitch" / "speakers.pth"
+    ).exists():
+        hi = hi / "hi"
+    spk = hi / "fastpitch" / "speakers.pth"
+    if not spk.exists():
+        return
+    # Prefer the in-container absolute path the TTS service mounts.
+    spk_path = f"/models/tts/indic-tts/hi/fastpitch/speakers.pth"
+    for cfg in (hi / "config.json", hi / "fastpitch" / "config.json"):
+        if not cfg.exists():
+            continue
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        data["speakers_file"] = spk_path
+        if isinstance(data.get("model_args"), dict):
+            data["model_args"]["speakers_file"] = spk_path
+        cfg.write_text(json.dumps(data, indent=4) + "\n", encoding="utf-8")
+        print(f"patched speakers_file in {cfg}")
+    # Ensure top-level config.json exists (Coqui often expects it).
+    top = hi / "config.json"
+    fp_cfg = hi / "fastpitch" / "config.json"
+    if not top.exists() and fp_cfg.exists():
+        shutil.copy2(fp_cfg, top)
+
+
 def fetch_parler() -> dict:
     """Fetch Indic Parler-TTS weights for streaming Hindi voices.
 
@@ -327,6 +399,7 @@ def main() -> int:
     info = {
         "tts": fetch_tts(),
         "piper": fetch_piper(),
+        "indic_tts": fetch_indic_tts(),
         "parler": fetch_parler(),
         "smart_turn": fetch_smart_turn(),
         "silero_vad": fetch_silero_vad(),

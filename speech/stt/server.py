@@ -32,11 +32,16 @@ API_TOKEN = (os.environ.get("SPEECH_API_TOKEN") or "").strip()
 DECODE_TICK_MS = float(os.environ.get("STT_DECODE_TICK_MS", "40"))
 
 # Defaults overridden by Flux query params / Configure messages.
-DEFAULT_EAGER = float(os.environ.get("STT_EAGER_EOT_THRESHOLD", "0.5"))
-DEFAULT_EOT = float(os.environ.get("STT_EOT_THRESHOLD", "0.7"))
-DEFAULT_EOT_TIMEOUT = float(os.environ.get("STT_EOT_TIMEOUT_MS", "1200"))
-DEFAULT_EOT_SILENCE = float(os.environ.get("STT_EOT_SILENCE_MS", "300"))
-DEFAULT_EAGER_SILENCE = float(os.environ.get("STT_EAGER_SILENCE_MS", "200"))
+# Hindi telephony needs longer pauses than English Flux defaults — 200–300ms
+# silence was cutting mid-phrase ("आज जी मैंने चे", "अभी तो नहीं चाह").
+DEFAULT_EAGER = float(os.environ.get("STT_EAGER_EOT_THRESHOLD", "0.6"))
+DEFAULT_EOT = float(os.environ.get("STT_EOT_THRESHOLD", "0.85"))
+DEFAULT_EOT_TIMEOUT = float(os.environ.get("STT_EOT_TIMEOUT_MS", "3500"))
+DEFAULT_EOT_SILENCE = float(os.environ.get("STT_EOT_SILENCE_MS", "550"))
+DEFAULT_EAGER_SILENCE = float(os.environ.get("STT_EAGER_SILENCE_MS", "400"))
+# Floor on silence even when Dograh sends aggressive Flux query params.
+MIN_EOT_SILENCE = float(os.environ.get("STT_MIN_EOT_SILENCE_MS", "450"))
+MIN_EAGER_SILENCE = float(os.environ.get("STT_MIN_EAGER_SILENCE_MS", "300"))
 
 
 class SessionRegistry:
@@ -81,6 +86,8 @@ class ListenSession:
         self.closed = False
         self._pcm_window = bytearray()
         self._window_max = int(sample_rate * 2 * 8)  # ~8s int16 mono
+        # Last EndOfTurn transcript we actually sent to Dograh (for dedupe/delta).
+        self.last_sent_eot = ""
 
     async def send_json(self, payload: dict[str, Any]) -> None:
         if self.closed:
@@ -129,12 +136,21 @@ def _parse_listen_query(query_string: bytes) -> tuple[int, str, TurnConfig]:
     hints = qs.get("language_hint") or []
     language = (hints[0] if hints else first("language", "hi")).lower() or "hi"
 
+    # Never let stock Flux English defaults cut Hindi turns mid-phrase.
+    eot_threshold = max(float(first("eot_threshold", str(DEFAULT_EOT))), DEFAULT_EOT)
+    eager_threshold = max(
+        float(first("eager_eot_threshold", str(DEFAULT_EAGER))), DEFAULT_EAGER
+    )
     cfg = TurnConfig(
-        eager_eot_threshold=float(first("eager_eot_threshold", str(DEFAULT_EAGER))),
-        eot_threshold=float(first("eot_threshold", str(DEFAULT_EOT))),
-        eot_timeout_ms=float(first("eot_timeout_ms", str(DEFAULT_EOT_TIMEOUT))),
-        eot_silence_ms=DEFAULT_EOT_SILENCE,
-        eager_silence_ms=DEFAULT_EAGER_SILENCE,
+        eager_eot_threshold=eager_threshold,
+        eot_threshold=eot_threshold,
+        eot_timeout_ms=max(
+            float(first("eot_timeout_ms", str(DEFAULT_EOT_TIMEOUT))),
+            DEFAULT_EOT_TIMEOUT,
+        ),
+        eot_silence_ms=max(DEFAULT_EOT_SILENCE, MIN_EOT_SILENCE),
+        eager_silence_ms=max(DEFAULT_EAGER_SILENCE, MIN_EAGER_SILENCE),
+        transcript_stable_ms=float(os.environ.get("STT_TRANSCRIPT_STABLE_MS", "280")),
     )
     return sample_rate, language, cfg
 
@@ -220,11 +236,11 @@ async def _read_client(session: ListenSession) -> None:
 def _apply_configure(session: ListenSession, data: dict[str, Any]) -> None:
     cfg = session.turn.config
     if "eot_threshold" in data and data["eot_threshold"] is not None:
-        cfg.eot_threshold = float(data["eot_threshold"])
+        cfg.eot_threshold = max(float(data["eot_threshold"]), DEFAULT_EOT)
     if "eager_eot_threshold" in data and data["eager_eot_threshold"] is not None:
-        cfg.eager_eot_threshold = float(data["eager_eot_threshold"])
+        cfg.eager_eot_threshold = max(float(data["eager_eot_threshold"]), DEFAULT_EAGER)
     if "eot_timeout_ms" in data and data["eot_timeout_ms"] is not None:
-        cfg.eot_timeout_ms = float(data["eot_timeout_ms"])
+        cfg.eot_timeout_ms = max(float(data["eot_timeout_ms"]), DEFAULT_EOT_TIMEOUT)
     hints = data.get("language_hints") or data.get("language_hint")
     if hints:
         if isinstance(hints, list) and hints:
@@ -290,6 +306,29 @@ async def _drain_session(engine: AsrEngine, session: ListenSession) -> None:
         eot_prob=eot_prob,
     )
     for event, payload in events:
+        if event == Event.END_OF_TURN:
+            raw = (payload.get("transcript") or "").strip()
+            prev = (session.last_sent_eot or "").strip()
+            # If ASR reset failed, raw still contains the previous turn — send
+            # only the new suffix, or drop a pure duplicate. Mid-turn Updates
+            # are left alone so first-turn behavior matches the working path.
+            if prev and raw == prev:
+                log.info("turn id=%s event=EndOfTurn skipped duplicate", session.id)
+                await asyncio.to_thread(engine.reset_stream, session.handle)
+                session._pcm_window.clear()
+                continue
+            if prev and raw.startswith(prev):
+                delta = raw[len(prev) :].lstrip(" \t,.-|।")
+                if not delta:
+                    log.info("turn id=%s event=EndOfTurn skipped empty delta", session.id)
+                    await asyncio.to_thread(engine.reset_stream, session.handle)
+                    session._pcm_window.clear()
+                    continue
+                payload = {**payload, "transcript": delta}
+                session.last_sent_eot = raw
+            else:
+                session.last_sent_eot = raw
+
         msg = flux_message(event, payload)
         if event in (Event.START_OF_TURN, Event.END_OF_TURN, Event.EAGER_END_OF_TURN):
             log.info(
@@ -299,6 +338,9 @@ async def _drain_session(engine: AsrEngine, session: ListenSession) -> None:
                 (msg.get("transcript") or "")[:80],
             )
         await session.send_json(msg)
+        if event == Event.END_OF_TURN:
+            await asyncio.to_thread(engine.reset_stream, session.handle)
+            session._pcm_window.clear()
 
 
 @app.get("/")
