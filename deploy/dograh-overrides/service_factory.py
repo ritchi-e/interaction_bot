@@ -722,8 +722,8 @@ def create_tts_service(
         if base_url:
             _validate_runtime_service_url(base_url, "base_url")
             kwargs["base_url"] = base_url
-            # Self-hosted OpenAI-compatible TTS (speech-tts): Piper is usually
-            # <1s; F5 can still take a few seconds on cold clauses. Pipecat's
+            # Self-hosted OpenAI-compatible TTS (speech-tts): FastPitch is
+            # usually under a second; F5 can still take a few seconds. Pipecat's
             # default 3s stop-frame timeout is too aggressive for F5, but 45s
             # kept the user muted far too long when BotStoppedSpeaking lagged.
             kwargs.setdefault("stop_frame_timeout_s", 12.0)

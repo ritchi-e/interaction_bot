@@ -1,4 +1,4 @@
-"""TTS engine: Indic-TTS FastPitch (default Hindi) + Parler + Piper + F5."""
+"""TTS engine: Hindi IndicTTS VITS, with FastPitch still available."""
 
 from __future__ import annotations
 
@@ -16,8 +16,11 @@ import torch
 
 from cache import PcmCache
 from indic_tts_engine import IndicTtsEngine
-from parler_engine import ParlerEngine
-from piper_engine import PiperEngine
+from indic_vits_engine import GAIN as VITS_GAIN
+from indic_vits_engine import NOISE_SCALE as VITS_NOISE
+from indic_vits_engine import NOISE_SCALE_DURATION as VITS_DURATION_NOISE
+from indic_vits_engine import SPEAKING_RATE as VITS_RATE
+from indic_vits_engine import IndicVitsEngine
 from text import normalize, split_clauses
 
 log = logging.getLogger("speech_tts.engine")
@@ -30,22 +33,18 @@ SAMPLE_RATE = 24000
 NFE = int(os.environ.get("TTS_NFE", "16"))
 DEVICE = os.environ.get("TTS_DEVICE", "cuda")
 FIRST_MAX_WORDS = int(os.environ.get("TTS_FIRST_CLAUSE_WORDS", "8"))
-# Parler is slower-than-realtime on T4, so its first clause should be shorter
-# than F5's to minimize time-to-first-audio; defaults to a bit smaller than
-# the F5 knob above but is independently tunable.
-PARLER_FIRST_CLAUSE_WORDS = int(os.environ.get("PARLER_FIRST_CLAUSE_WORDS", "6"))
-# NOTE: we tried merging short (1-2 word) clauses forward into their neighbour
-# on the theory that Indic Parler needs a few words of context to emit EOS
-# cleanly. Measured head-to-head on the live endpoint, that made things worse:
-# merging grows the *first* clause (the one TTFA depends on most), and the
-# model still tends to ride out close to whatever token budget the (now
-# bigger) clause gets instead of stopping early — so TTFA on a merged 8-word
-# first clause was ~17s vs ~4s unmerged. Short clauses are themselves fast to
-# cap out on (bounded by their own small max_new_tokens, see parler_engine),
-# so leaving `split_clauses` output as-is gives a strictly lower worst case.
-# Skip F5 when 1 — FastPitch/Parler need the T4 VRAM; English can fall back later.
-SKIP_F5 = os.environ.get("TTS_SKIP_F5", os.environ.get("TTS_PIPER_ONLY", "1")) == "1"
-_FAST_BACKENDS = frozenset({"piper", "parler", "indic"})
+# Skip F5 when 1 — FastPitch needs the GPU; English can fall back later.
+SKIP_F5 = os.environ.get("TTS_SKIP_F5", "1") == "1"
+_FAST_BACKENDS = frozenset({"indic", "vits"})
+# Old campaign ids, kept so a workflow published before this change still speaks.
+_LEGACY_VOICE = {
+    "selfhost-hi-female-parler": "selfhost-hi-female-indic",
+    "selfhost-hi-male-parler": "selfhost-hi-male-indic",
+    "selfhost-hi-female-fast": "selfhost-hi-female-indic",
+    "selfhost-hi-male-fast": "selfhost-hi-male-indic",
+    "selfhost-hi-female-xtts": "selfhost-hi-female-vits",
+    "selfhost-hi-male-xtts": "selfhost-hi-male-vits",
+}
 
 
 @dataclass
@@ -63,8 +62,7 @@ class TtsEngine:
         self.model = None
         self.voices: dict[str, Voice] = {}
         self.indic = IndicTtsEngine()
-        self.piper = PiperEngine()
-        self.parler = ParlerEngine()
+        self.vits = IndicVitsEngine()
         self.cache = PcmCache(
             max_items=int(os.environ.get("TTS_CACHE_ITEMS", "256")),
             disk_dir=os.environ.get("TTS_CACHE_DIR", "/models/tts/cache"),
@@ -73,7 +71,7 @@ class TtsEngine:
         if not SKIP_F5:
             self._load_model()
         else:
-            log.info("TTS_SKIP_F5=1 — skipping F5 load (Indic-TTS/Parler/Piper only)")
+            log.info("TTS_SKIP_F5=1 — skipping F5 load")
         self._warm_fast()
 
     def _load_voices(self) -> None:
@@ -116,23 +114,14 @@ class TtsEngine:
                 language=info.language,
                 backend="indic",
             )
-        for vid, info in self.parler.voices.items():
+        for vid, info in self.vits.voices.items():
             self.voices[vid] = Voice(
                 id=vid,
                 ref_audio=Path(""),
                 ref_text="",
                 language=info.language,
-                backend="parler",
+                backend="vits",
             )
-        for vid, info in self.piper.voices.items():
-            self.voices[vid] = Voice(
-                id=vid,
-                ref_audio=Path(""),
-                ref_text="",
-                language=info.language,
-                backend="piper",
-            )
-
         if not self.voices:
             raise RuntimeError(f"no voices defined in {VOICES_JSON} and no fast models")
         log.info("voices: %s", list(self.voices))
@@ -143,16 +132,11 @@ class TtsEngine:
                 list(self.indic.synthesize_pcm(vid, "नमस्ते।"))
             except Exception as exc:
                 log.warning("indic-tts warm-up failed for %s: %s", vid, exc)
-        for vid in list(self.parler.voices):
+        for vid in list(self.vits.voices):
             try:
-                list(self.parler.synthesize_pcm(vid, "नमस्ते।"))
+                list(self.vits.synthesize_pcm(vid, "नमस्ते।"))
             except Exception as exc:
-                log.warning("parler warm-up failed for %s: %s", vid, exc)
-        for vid in list(self.piper.voices):
-            try:
-                list(self.piper.synthesize_pcm(vid, "नमस्ते।"))
-            except Exception as exc:
-                log.warning("piper warm-up failed for %s: %s", vid, exc)
+                log.warning("indic-vits warm-up failed for %s: %s", vid, exc)
 
     def _load_model(self) -> None:
         import importlib.util
@@ -197,13 +181,13 @@ class TtsEngine:
         log.info("TTS warm-up complete")
 
     def resolve_voice(self, model_field: str | None) -> Voice:
+        model_field = _LEGACY_VOICE.get(model_field or "", model_field)
         if model_field and model_field in self.voices:
             return self.voices[model_field]
         for key in (
             model_field or "",
+            "selfhost-hi-female-vits",
             "selfhost-hi-female-indic",
-            "selfhost-hi-female-parler",
-            "selfhost-hi-female-fast",
             "selfhost-hi-female",
             "selfhost-en-female",
             next(iter(self.voices)),
@@ -215,11 +199,19 @@ class TtsEngine:
     def _fast_engine(self, backend: str):
         if backend == "indic":
             return self.indic
-        if backend == "parler":
-            return self.parler
-        if backend == "piper":
-            return self.piper
+        if backend == "vits":
+            return self.vits
         raise KeyError(backend)
+
+    @staticmethod
+    def _cache_text(voice: Voice, clean: str) -> str:
+        """Keep a retuned VITS voice from replaying audio cached under the old settings."""
+        if voice.backend != "vits":
+            return clean
+        return (
+            f"{clean}\n"
+            f"vits:{VITS_RATE:.2f}:{VITS_NOISE:.2f}:{VITS_DURATION_NOISE:.2f}:{VITS_GAIN:.2f}"
+        )
 
     def synthesize_pcm(
         self,
@@ -233,48 +225,29 @@ class TtsEngine:
         if not clean:
             return
 
+        cache_text = self._cache_text(voice, clean)
         if voice.backend in _FAST_BACKENDS:
             if use_cache:
-                hit = self.cache.get(voice.id, clean)
+                hit = self.cache.get(voice.id, cache_text)
                 if hit is not None:
+                    log.info("tts cache hit voice=%s chars=%d", voice.id, len(clean))
                     step = 4800
                     for i in range(0, len(hit), step):
                         yield hit[i : i + step]
                     return
             engine = self._fast_engine(voice.backend)
-            if voice.backend == "parler":
-                # Parler is slower than realtime on T4, so within one call we
-                # never drip chunks to the phone as they decode (that's what
-                # caused word...gap...word). Instead we buffer fully *per
-                # clause* and pipeline clause-by-clause: clause 1 (short, by
-                # construction) finishes generating fast and starts playing
-                # immediately, while clause 2+ generate in the background on
-                # this same producer thread, overlapping with clause 1's
-                # network/playback time. Any residual gap lands at a natural
-                # pause point (comma/period) instead of mid-word, so it reads
-                # as a breath, not a glitch.
-                clauses = split_clauses(clean, first_max_words=PARLER_FIRST_CLAUSE_WORDS)
-                collected = bytearray()
-                step = 9600  # 200ms slices, emitted back-to-back
-                for clause in clauses:
-                    pcm = b"".join(engine.synthesize_pcm(voice.id, clause))
-                    collected.extend(pcm)
-                    for i in range(0, len(pcm), step):
-                        yield pcm[i : i + step]
-                if use_cache and collected:
-                    self.cache.put(voice.id, clean, bytes(collected))
-                return
             collected = bytearray()
             for chunk in engine.synthesize_pcm(voice.id, clean):
                 collected.extend(chunk)
                 yield chunk
             if use_cache and collected:
-                self.cache.put(voice.id, clean, bytes(collected))
+                self.cache.put(voice.id, cache_text, bytes(collected))
             return
 
         if use_cache:
             hit = self.cache.get(voice.id, clean)
             if hit is not None:
+                log.info("tts cache hit voice=%s chars=%d", voice.id, len(clean))
                 step = 4800
                 for i in range(0, len(hit), step):
                     yield hit[i : i + step]
@@ -294,7 +267,7 @@ class TtsEngine:
     def _synth_clause(self, voice: Voice, clause: str) -> bytes:
         if self.model is None:
             raise RuntimeError(
-                "F5 model not loaded; use an Indic-TTS/Parler/Piper voice or unset TTS_SKIP_F5"
+                "F5 model not loaded; use an Indic-TTS voice or unset TTS_SKIP_F5"
             )
         if not voice.ref_audio.exists():
             raise FileNotFoundError(

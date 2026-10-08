@@ -31,8 +31,9 @@ DEVICE = os.environ.get("INDIC_TTS_DEVICE") or os.environ.get("TTS_DEVICE", "cud
 # Slightly slower / softer defaults — FastPitch female can sound sharp on PSTN.
 SPEED = float(os.environ.get("INDIC_TTS_SPEED", "1.0"))
 GAIN = float(os.environ.get("INDIC_TTS_GAIN", "1.0"))
-# Per-voice gain. Female FastPitch is brighter/louder; pull it down and soft-EQ.
-FEMALE_GAIN = float(os.environ.get("INDIC_TTS_FEMALE_GAIN", "0.85"))
+# Per-voice gain. Female FastPitch is softer than Parler Divya (gain 3.2);
+# ~1.3 keeps an ack from dipping before the Parler answer. Soft-EQ stays on.
+FEMALE_GAIN = float(os.environ.get("INDIC_TTS_FEMALE_GAIN", "1.3"))
 MALE_GAIN = float(os.environ.get("INDIC_TTS_MALE_GAIN", "1.05"))
 # One-pole low-pass toward ~3.2 kHz at 24 kHz to tame harsh highs on female.
 FEMALE_SOFTEN = os.environ.get("INDIC_TTS_FEMALE_SOFTEN", "1") == "1"

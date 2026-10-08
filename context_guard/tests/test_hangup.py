@@ -1,4 +1,12 @@
-from guard import caller_is_done, caller_wants_more, closing_line, is_farewell, take_complete
+from guard import (
+    caller_is_done,
+    caller_wants_more,
+    closing_line,
+    is_farewell,
+    split_sentences,
+    take_complete,
+    validate_sentence,
+)
 
 
 def _user(text):
@@ -59,6 +67,23 @@ def test_an_unfinished_phrase_waits_for_the_sentence_to_end():
     spoken, rest = take_complete("one two three four five six seven eight")
     assert spoken == []
     assert rest == "one two three four five six seven eight"
+
+
+def test_decimal_rate_stays_one_sentence():
+    facts = "ब्याज दर सालाना शुरू: Rs 10.99"
+    line = "ब्याज दर सालाना १०.९९ प्रतिशत से शुरू।"
+    spoken, rest = take_complete(line)
+    assert rest == ""
+    assert spoken == [line]
+    assert split_sentences(line) == [line]
+    ok, reason = validate_sentence(spoken[0], facts, [], [])
+    assert ok, reason
+
+
+def test_incomplete_decimal_waits_for_the_fraction():
+    spoken, rest = take_complete("ब्याज दर सालाना १०.")
+    assert spoken == []
+    assert rest == "ब्याज दर सालाना १०."
 
 
 def test_closing_line_is_a_farewell_and_can_be_read_back():

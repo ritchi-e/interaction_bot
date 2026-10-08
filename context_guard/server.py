@@ -282,15 +282,7 @@ async def chat_completions(request: Request):
         return StreamingResponse(hangup_now(), media_type="text/event-stream")
 
     async def start_voice(text):
-        """Optionally prewarm the first sentence — skipped for Parler.
-
-        Parler is single-flight on the GPU. Speculative prewarm races the live
-        /v1/audio/speech request and queues behind the lock, so Dograh hears
-        multi-second gaps. Live streaming TTFA (~1–1.5s) is faster than a
-        contended prewarm. Piper/F5 still benefit from first-sentence prewarm.
-        """
-        if "parler" in (voice_model or "").lower():
-            return
+        """Optionally prewarm the first sentence of this spoken chunk."""
         sentences = split_sentences(text) or []
         line = " ".join((sentences[0] or "").split()) if sentences else ""
         if not line or not voice_model:

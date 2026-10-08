@@ -111,7 +111,7 @@ async def _fill_prewarm(engine: TtsEngine, voice: str, text: str, pw: Prewarmed)
     """Stream chunks into the prewarm buffer as they are produced.
 
     Buffering the full utterance first (list(...)) made Dograh wait for the
-    entire Parler generate (~5–12s) before the first byte — killing call flow.
+    whole generate before the first byte.
     """
     loop = asyncio.get_running_loop()
 

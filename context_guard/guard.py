@@ -9,7 +9,7 @@ import re
 import unicodedata
 
 DIGIT_TABLE = str.maketrans("०१२३४५६७८९", "0123456789")
-SENTENCE_MARK = re.compile(r"[.!?।]")
+_DIGITS = frozenset("0123456789०१२३४५६७८९")
 NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 HANDOFF_TOOL = {
@@ -296,25 +296,72 @@ def validate_sentence(sentence, facts, forbidden, competitors):
     return True, ""
 
 
+def _boundary_at(text, index):
+    """True when this character ends a sentence.
+
+    A dot between digits is a decimal (10.99 / १०.९९), not a full stop.
+    A dot at the very end of the buffer is held, because the next token may
+    still be the fractional part.
+    """
+    char = text[index]
+    if char in "!?।":
+        return True
+    if char != ".":
+        return False
+    prev = text[index - 1] if index else ""
+    nxt = text[index + 1] if index + 1 < len(text) else ""
+    if prev in _DIGITS and (nxt in _DIGITS or nxt == ""):
+        return False
+    return True
+
+
+def _next_boundary(text):
+    for index, char in enumerate(text):
+        if char in ".!?।" and _boundary_at(text, index):
+            return index
+    return None
+
+
 def split_sentences(text):
-    parts = re.split(r"(?<=[.!?।])\s+", (text or "").strip())
-    return [part.strip() for part in parts if part.strip()]
+    text = (text or "").strip()
+    if not text:
+        return []
+    parts = []
+    start = 0
+    index = 0
+    while index < len(text):
+        if _boundary_at(text, index):
+            nxt = text[index + 1 :]
+            if not nxt or nxt[0].isspace():
+                sentence = text[start : index + 1].strip()
+                if sentence:
+                    parts.append(sentence)
+                start = index + 1
+                while start < len(text) and text[start].isspace():
+                    start += 1
+                index = start
+                continue
+        index += 1
+    tail = text[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
 
 
 def take_complete(buffer):
     """Release only finished sentences.
 
-    Mulberry speaks one complete utterance at a time. Cutting a line into
-    pieces makes English words inside Hindi come out separately and unclear.
+    A decimal point inside a number (10.99, १०.९९) is not a sentence end.
+    An unfinished tail, including a number that may still grow, stays buffered.
     """
     complete = []
     rest = buffer
     while rest:
-        match = SENTENCE_MARK.search(rest)
-        if match is None:
+        index = _next_boundary(rest)
+        if index is None:
             break
-        sentence = rest[: match.end()].strip()
-        rest = rest[match.end() :].lstrip()
+        sentence = rest[: index + 1].strip()
+        rest = rest[index + 1 :].lstrip()
         if sentence:
             complete.append(sentence)
     return complete, rest

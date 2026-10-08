@@ -45,15 +45,6 @@ SILERO_VAD_URL = os.environ.get(
     "SILERO_VAD_URL",
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
 )
-# Official Piper Hindi VITS voices (best available: priyamvada female, rohan male).
-PIPER_HF_BASE = os.environ.get(
-    "PIPER_HF_BASE",
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main",
-)
-PIPER_VOICES = (
-    ("hi_IN-priyamvada-medium", "hi/hi_IN/priyamvada/medium"),
-    ("hi_IN-rohan-medium", "hi/hi_IN/rohan/medium"),
-)
 # AI4Bharat Indic-TTS FastPitch+HiFi-GAN Hindi checkpoint (~1.4GB zip).
 INDIC_TTS_ZIP_URL = os.environ.get(
     "INDIC_TTS_ZIP_URL",
@@ -195,28 +186,33 @@ def fetch_tts() -> dict:
     return {"tts_repo": DHEE_HF, "tts_dir": str(dest)}
 
 
-def fetch_piper() -> dict:
-    """Download official Piper Hindi ONNX voices for low-latency TTS."""
-    dest = MODELS_DIR / "tts" / "piper"
-    dest.mkdir(parents=True, exist_ok=True)
-    headers = {}
-    if HF_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_TOKEN}"
-    got = []
-    for name, rel in PIPER_VOICES:
-        onnx = dest / f"{name}.onnx"
-        cfg = dest / f"{name}.onnx.json"
-        for path, suffix in ((onnx, ".onnx"), (cfg, ".onnx.json")):
-            if path.exists() and path.stat().st_size > 1000:
-                continue
-            url = f"{PIPER_HF_BASE}/{rel}/{name}{suffix}"
-            try:
-                _download(url, path, headers=headers)
-            except Exception as exc:
-                print(f"WARNING: piper download failed {url}: {exc}")
-        if onnx.exists() and cfg.exists():
-            got.append(name)
-    return {"piper_dir": str(dest), "voices": got}
+def fetch_indic_vits() -> dict:
+    """Download Hindi VITS checkpoints fine-tuned on the IndicTTS speakers."""
+    dest = MODELS_DIR / "tts" / "indic-vits"
+    repos = {
+        "female": os.environ.get("INDIC_VITS_FEMALE_REPO", "onecxi/mms-hindi-female-indic"),
+        "male": os.environ.get("INDIC_VITS_MALE_REPO", "onecxi/mms-hindi-male-indic"),
+    }
+    got = {}
+    try:
+        from huggingface_hub import snapshot_download
+    except Exception as exc:
+        print(f"WARNING: IndicTTS VITS download skipped ({exc})")
+        return {"indic_vits_dir": str(dest), "source": "missing"}
+    for speaker, repo in repos.items():
+        folder = dest / speaker
+        marker = folder / "model.safetensors"
+        if marker.exists() and marker.stat().st_size > 10_000_000:
+            got[speaker] = "existing"
+            continue
+        try:
+            print(f"fetching IndicTTS VITS {speaker} from {repo} -> {folder}")
+            snapshot_download(repo, local_dir=str(folder))
+            got[speaker] = "huggingface" if marker.exists() else "missing"
+        except Exception as exc:
+            print(f"WARNING: IndicTTS VITS {speaker} download failed ({exc})")
+            got[speaker] = "missing"
+    return {"indic_vits_dir": str(dest), "voices": got}
 
 
 def fetch_indic_tts() -> dict:
@@ -283,45 +279,6 @@ def _patch_indic_tts_speakers_paths(dest: Path) -> None:
     fp_cfg = hi / "fastpitch" / "config.json"
     if not top.exists() and fp_cfg.exists():
         shutil.copy2(fp_cfg, top)
-
-
-def fetch_parler() -> dict:
-    """Fetch Indic Parler-TTS weights for streaming Hindi voices.
-
-    HF hub is gated (contact-info form). Prefer ModelScope when the local
-    checkout is missing; accept HF_TOKEN as a fallback.
-    """
-    dest = MODELS_DIR / "tts" / "indic-parler-tts"
-    marker = dest / "model.safetensors"
-    if marker.exists() and marker.stat().st_size > 1_000_000_000:
-        return {"parler_dir": str(dest), "source": "existing"}
-
-    dest.mkdir(parents=True, exist_ok=True)
-    # ModelScope is ungated and matches ai4bharat/indic-parler-tts.
-    try:
-        from modelscope import snapshot_download
-
-        print(f"fetching Indic Parler via ModelScope -> {dest}")
-        snapshot_download("AI4Bharat/indic-parler-tts", local_dir=str(dest))
-        if marker.exists():
-            return {"parler_dir": str(dest), "source": "modelscope"}
-    except Exception as exc:
-        print(f"WARNING: ModelScope Parler fetch failed ({exc})")
-
-    try:
-        from huggingface_hub import snapshot_download as hf_snap
-
-        kwargs = {"local_dir": str(dest)}
-        if HF_TOKEN:
-            kwargs["token"] = HF_TOKEN
-        print(f"fetching Indic Parler via Hugging Face -> {dest}")
-        hf_snap("ai4bharat/indic-parler-tts", **kwargs)
-        if marker.exists():
-            return {"parler_dir": str(dest), "source": "huggingface"}
-    except Exception as exc:
-        print(f"WARNING: Hugging Face Parler fetch failed ({exc})")
-
-    return {"parler_dir": str(dest), "source": "missing"}
 
 
 def fetch_silero_vad() -> dict:
@@ -398,9 +355,8 @@ def main() -> int:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     info = {
         "tts": fetch_tts(),
-        "piper": fetch_piper(),
+        "indic_vits": fetch_indic_vits(),
         "indic_tts": fetch_indic_tts(),
-        "parler": fetch_parler(),
         "smart_turn": fetch_smart_turn(),
         "silero_vad": fetch_silero_vad(),
         "stt": export_nemotron_or_fallback(),

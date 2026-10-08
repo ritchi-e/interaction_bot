@@ -1,6 +1,20 @@
 {
   "voices": [
     {
+      "id": "selfhost-hi-female-vits",
+      "label": "Hindi · Female (IndicTTS VITS)",
+      "backend": "vits",
+      "language": "hi",
+      "gender": "female"
+    },
+    {
+      "id": "selfhost-hi-male-vits",
+      "label": "Hindi · Male (IndicTTS VITS)",
+      "backend": "vits",
+      "language": "hi",
+      "gender": "male"
+    },
+    {
       "id": "selfhost-hi-female-indic",
       "label": "Hindi · Female (Indic-TTS FastPitch)",
       "backend": "indic",
@@ -11,34 +25,6 @@
       "id": "selfhost-hi-male-indic",
       "label": "Hindi · Male (Indic-TTS FastPitch)",
       "backend": "indic",
-      "language": "hi",
-      "gender": "male"
-    },
-    {
-      "id": "selfhost-hi-female-parler",
-      "label": "Hindi · Female (Indic Parler · Divya)",
-      "backend": "parler",
-      "language": "hi",
-      "gender": "female"
-    },
-    {
-      "id": "selfhost-hi-male-parler",
-      "label": "Hindi · Male (Indic Parler · Rohit)",
-      "backend": "parler",
-      "language": "hi",
-      "gender": "male"
-    },
-    {
-      "id": "selfhost-hi-female-fast",
-      "label": "Hindi · Female (fast Piper)",
-      "backend": "piper",
-      "language": "hi",
-      "gender": "female"
-    },
-    {
-      "id": "selfhost-hi-male-fast",
-      "label": "Hindi · Male (fast Piper)",
-      "backend": "piper",
       "language": "hi",
       "gender": "male"
     },
