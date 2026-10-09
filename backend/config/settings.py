@@ -144,16 +144,22 @@ ASTERISK_AMI_PORT = int(os.environ.get("ASTERISK_AMI_PORT", "5038"))
 ASTERISK_AMI_USER = os.environ.get("ASTERISK_AMI_USER", "caller")
 ASTERISK_AMI_SECRET = os.environ.get("ASTERISK_AMI_SECRET", "")
 
-# Self-hosted speech stack (deploy/docker-compose.yml speech-stt / speech-tts).
-# Dograh reaches STT via the Deepgram Flux protocol and TTS via the OpenAI
-# speech API — both pointed at our GPU containers. See apps/agents/model_overrides.py.
+# TTS is the Voxtral proxy (OpenAI speech API). STT is Deepgram Flux cloud;
+# the local speech-stt container is not on the GPU. See model_overrides.py.
 SPEECH_STT_URL = os.environ.get("SPEECH_STT_URL", "http://speech-stt:8000")
 SPEECH_TTS_URL = os.environ.get("SPEECH_TTS_URL", "http://speech-tts:8000/v1")
 SPEECH_API_TOKEN = os.environ.get("SPEECH_API_TOKEN", "")
 SPEECH_VOICE_NAME = os.environ.get("SPEECH_VOICE_NAME", "female")
 
-# Legacy names kept so older .env files and tests do not crash on import.
-DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
+# deepgram_nova3_api is the name already stored in this deployment's env.
+DEEPGRAM_API_KEY = (
+    os.environ.get("DEEPGRAM_API_KEY")
+    or os.environ.get("deepgram_nova3_api")
+    or ""
+)
+DEEPGRAM_BASE_URL = os.environ.get(
+    "DEEPGRAM_BASE_URL", "https://api.deepgram.com"
+).rstrip("/")
 SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "")
 CARTESIA_API_KEY = os.environ.get("CARTESIA_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")

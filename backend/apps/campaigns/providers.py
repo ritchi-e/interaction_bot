@@ -1,7 +1,7 @@
 """What to paste into Dograh's model configuration for this deployment.
 
-Speech-to-text and text-to-speech are self-hosted on the GPU. Dograh reaches
-the language model only through the context guard.
+Speech-to-text is Deepgram Flux. Speech is Voxtral behind the OpenAI-compatible
+proxy. Dograh reaches the language model only through the context guard.
 """
 
 import os
@@ -23,23 +23,23 @@ def dograh_model_configuration(keys):
             "provider": "deepgram",
             "model": "flux-general-multi",
             "language": "hi",
-            "base_url": settings.SPEECH_STT_URL,
-            "api_key": token,
+            "base_url": settings.DEEPGRAM_BASE_URL,
+            "api_key": (settings.DEEPGRAM_API_KEY or "").strip() or token,
+            "language_hints": ["hi", "en"],
             "note": (
-                "Self-hosted speech-stt (Nemotron Hinglish) speaking the "
-                "Deepgram Flux protocol. Campaign overrides pin language "
-                "hints; see apps/agents/model_overrides.py."
+                "Deepgram Flux cloud. Hindi campaigns also hint English so "
+                "loanwords survive. See apps/agents/model_overrides.py."
             ),
         },
         "tts": {
             "provider": "openai",
             "base_url": settings.SPEECH_TTS_URL,
-            "model": "selfhost-hi-female-vits",
+            "model": "hi_female",
             "voice": "alloy",
             "api_key": token,
             "note": (
-                "Self-hosted speech-tts. Hindi default is IndicTTS VITS. "
-                "See apps/agents/model_overrides.py."
+                "Voxtral TTS via the OpenAI speech proxy. Hindi default is "
+                "the hi_female preset. See apps/agents/model_overrides.py."
             ),
         },
         "telephony": {"provider": "plivo", "caller_id_format": "+91XXXXXXXXXX"},

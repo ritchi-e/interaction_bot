@@ -64,8 +64,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      speech-stt:
-        condition: service_healthy
       speech-tts:
         condition: service_healthy
 
@@ -138,8 +136,8 @@ services:
     profiles: ["models"]
 
   speech-stt:
-    <<: *gpu
-    gpus: all
+    # Local Nemotron stays off the GPU. Start only with --profile legacy-speech.
+    profiles: ["legacy-speech"]
     build:
       context: ../speech/stt
     # SPEECH_API_TOKEN is a secret: load it from env_file, not `${VAR}`
@@ -168,45 +166,55 @@ services:
       retries: 10
       start_period: 90s
 
-  speech-tts:
-    <<: *gpu
+  voxtral-tts:
+    image: vllm/vllm-omni:v0.30.0
     gpus: all
-    build:
-      context: ../speech/tts
-    # SPEECH_API_TOKEN is a secret: load it from env_file, not `${VAR}`
-    # here (same shadowing bug documented on the postgres/backend
-    # services). Without this, speech-tts always ran with an empty token,
-    # i.e. with auth silently disabled.
+    ipc: host
+    shm_size: "8gb"
     env_file:
       - ../.env
     environment:
-      MODELS_DIR: /models
-      TTS_MODEL_DIR: /models/tts/dhee-indic-f5
-      TTS_VOICES_DIR: /models/tts/voices
-      TTS_DEVICE: cuda
-      TTS_NFE: ${TTS_NFE:-16}
-      TTS_SKIP_F5: ${TTS_SKIP_F5:-1}
       HF_HOME: /models/hf-cache
-      HF_TOKEN: ${HF_TOKEN:-}
-      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
-      # Hindi VITS fine-tuned on the IndicTTS speakers (default campaign voices).
-      INDIC_VITS_DIR: ${INDIC_VITS_DIR:-/models/tts/indic-vits}
-      INDIC_VITS_SPEAKING_RATE: ${INDIC_VITS_SPEAKING_RATE:-1.10}
-      INDIC_VITS_NOISE_SCALE: ${INDIC_VITS_NOISE_SCALE:-0.85}
-      INDIC_VITS_NOISE_SCALE_DURATION: ${INDIC_VITS_NOISE_SCALE_DURATION:-1.0}
-      INDIC_VITS_GAIN: ${INDIC_VITS_GAIN:-1.1}
-      # AI4Bharat Indic-TTS FastPitch+HiFi-GAN (still loaded; not the campaign default).
-      INDIC_TTS_DIR: ${INDIC_TTS_DIR:-/models/tts/indic-tts/hi}
-      INDIC_TTS_SPEED: ${INDIC_TTS_SPEED:-1.0}
-      INDIC_TTS_GAIN: ${INDIC_TTS_GAIN:-1.0}
-      INDIC_TTS_FEMALE_GAIN: ${INDIC_TTS_FEMALE_GAIN:-1.3}
-      INDIC_TTS_FEMALE_SOFTEN: ${INDIC_TTS_FEMALE_SOFTEN:-1}
-      INDIC_TTS_FEMALE_LP_HZ: ${INDIC_TTS_FEMALE_LP_HZ:-3200}
-      DHEE_HF_ID: ${DHEE_HF_ID:-dheeyantra/dhee-indic-f5}
-      # IndicF5 custom code lives on the models volume (f5_tts package).
-      PYTHONPATH: /models/tts/dhee-indic-f5
     volumes:
       - speech-models:/models
+      - ./voxtral_tts.l4.yaml:/opt/voxtral_tts.l4.yaml:ro
+    command:
+      - vllm
+      - serve
+      - mistralai/Voxtral-4B-TTS-2603
+      - --omni
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8091"
+      - --deploy-config
+      - /opt/voxtral_tts.l4.yaml
+      - --init-timeout
+      - "1800"
+      - --trust-remote-code
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health')",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 40
+      start_period: 900s
+
+  speech-tts:
+    build:
+      context: ../speech/voxtral_proxy
+    env_file:
+      - ../.env
+    environment:
+      VOXTRAL_UPSTREAM: http://voxtral-tts:8091
+    depends_on:
+      voxtral-tts:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -217,8 +225,8 @@ services:
         ]
       interval: 15s
       timeout: 5s
-      retries: 15
-      start_period: 240s
+      retries: 20
+      start_period: 30s
 
   frontend:
     build:

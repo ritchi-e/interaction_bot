@@ -8,8 +8,8 @@ overrides`` (see apps/agents/model_overrides.py and apps/agents/publish.py),
 computed and sent automatically every time an agent is published.
 
 This command only sets the shared base underneath those overrides: language
-model via the context guard, self-hosted STT (Deepgram Flux protocol against
-speech-stt), and self-hosted TTS (OpenAI speech API against speech-tts).
+model via the context guard, Deepgram Flux cloud STT, and Voxtral TTS
+(OpenAI speech API against the speech-tts proxy).
 
     python manage.py bootstrap_dograh
 """
@@ -31,6 +31,7 @@ class Command(BaseCommand):
             raise CommandError("DOGRAH_API_KEY is not set")
 
         token = (settings.SPEECH_API_TOKEN or "local").strip() or "local"
+        deepgram_key = (settings.DEEPGRAM_API_KEY or "").strip() or token
         config = {
             "version": 2,
             "mode": "byok",
@@ -47,13 +48,14 @@ class Command(BaseCommand):
                         "provider": "deepgram",
                         "model": "flux-general-multi",
                         "language": "hi",
-                        "base_url": settings.SPEECH_STT_URL,
-                        "api_key": token,
+                        "language_hints": ["hi", "en"],
+                        "base_url": settings.DEEPGRAM_BASE_URL,
+                        "api_key": deepgram_key,
                     },
                     "tts": {
                         "provider": "openai",
                         "base_url": settings.SPEECH_TTS_URL,
-                        "model": "selfhost-hi-female-vits",
+                        "model": "hi_female",
                         "voice": "alloy",
                         "api_key": token,
                     },

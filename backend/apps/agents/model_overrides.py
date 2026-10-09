@@ -1,26 +1,24 @@
-"""Per-campaign Dograh model overrides: self-hosted STT language and TTS voice.
+"""Per-campaign Dograh model overrides: Deepgram Flux STT and Voxtral TTS.
 
 Dograh's org-level model configuration is shared by the whole platform. A
 campaign's speech language and voice travel as a per-workflow
 ``workflow_configurations.model_overrides`` layered on top of that shared base.
 
-STT talks the Deepgram Flux protocol to our ``speech-stt`` container
-(Nemotron). TTS talks the OpenAI speech API to ``speech-tts``. Hindi campaigns use
-IndicTTS VITS (Hindi male and female). FastPitch remains an alternate voice id. dhee-indic-f5 remains an alternate voice id.
-Hindi campaigns already allow English loanwords (code-switching); there is
-no separate Hinglish mode.
+STT is Deepgram Flux cloud (``flux-general-multi``). Hindi campaigns also
+send an English hint so loanwords such as loan, car, and thank you survive.
+TTS talks the OpenAI speech API to the Voxtral proxy, which maps the model id
+onto a Voxtral preset (``hi_female`` / ``hi_male``).
 """
 
 from django.conf import settings
 
-# System voices shipped in speech/tts/voices/voices.json. Users pick gender in
-# the UI; language comes from the campaign. Hindi uses IndicTTS VITS.
-# English stays on F5 when enabled.
+# Model ids the Voxtral proxy understands. Users pick gender in the UI;
+# language comes from the campaign.
 _VOICE_IDS = {
-    ("hi", "female"): "selfhost-hi-female-vits",
-    ("hi", "male"): "selfhost-hi-male-vits",
-    ("en_in", "female"): "selfhost-en-female",
-    ("en_in", "male"): "selfhost-en-male",
+    ("hi", "female"): "hi_female",
+    ("hi", "male"): "hi_male",
+    ("en_in", "female"): "en_female",
+    ("en_in", "male"): "en_male",
 }
 
 _VALID_GENDERS = frozenset({"female", "male"})
@@ -52,15 +50,16 @@ def _speech_token():
 
 
 def _stt_override(campaign):
-    # Hindi uses language hint "hi"; the STT server maps that to Nemotron's
-    # auto prompt so English words inside Hindi still transcribe.
     language = "en" if campaign.language == "en_in" else "hi"
+    # flux-general-multi code-switches when both languages are hinted.
+    hints = ["en"] if language == "en" else ["hi", "en"]
     return {
         "provider": "deepgram",
         "model": "flux-general-multi",
         "language": language,
-        "base_url": settings.SPEECH_STT_URL,
-        "api_key": _speech_token(),
+        "language_hints": hints,
+        "base_url": settings.DEEPGRAM_BASE_URL,
+        "api_key": (settings.DEEPGRAM_API_KEY or "").strip() or "missing",
     }
 
 

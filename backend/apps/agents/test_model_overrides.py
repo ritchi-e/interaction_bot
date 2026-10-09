@@ -32,17 +32,19 @@ def test_stt_language_follows_campaign_language(language, stt_language):
     assert stt["provider"] == "deepgram"
     assert stt["model"] == "flux-general-multi"
     assert stt["language"] == stt_language
-    assert stt["base_url"] == settings.SPEECH_STT_URL
+    assert stt["base_url"] == settings.DEEPGRAM_BASE_URL
     assert stt["api_key"]
 
 
 @pytest.mark.django_db
-def test_hindi_listens_with_flux_against_selfhosted_stt():
+def test_hindi_listens_with_flux_against_deepgram():
     campaign, keys = _campaign("hi")
     stt = build_model_overrides(campaign, keys)["model_overrides"]["stt"]
     assert stt["provider"] == "deepgram"
     assert stt["model"] == "flux-general-multi"
     assert stt["language"] == "hi"
+    assert stt["language_hints"] == ["hi", "en"]
+    assert stt["base_url"] == settings.DEEPGRAM_BASE_URL
 
 
 @pytest.mark.django_db
@@ -56,10 +58,10 @@ def test_no_dictionary_is_ever_sent():
 @pytest.mark.parametrize(
     "language,voice,model",
     [
-        ("hi", "female", "selfhost-hi-female-vits"),
-        ("hi", "male", "selfhost-hi-male-vits"),
-        ("en_in", "female", "selfhost-en-female"),
-        ("en_in", "male", "selfhost-en-male"),
+        ("hi", "female", "hi_female"),
+        ("hi", "male", "hi_male"),
+        ("en_in", "female", "en_female"),
+        ("en_in", "male", "en_male"),
     ],
 )
 def test_system_voice_follows_language_and_gender(language, voice, model):
