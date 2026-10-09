@@ -1,0 +1,74 @@
+{
+  "campaign_id": "86916f80-f2fe-4911-ad0a-e9847eb2db9d",
+  "start": "pitch",
+  "off_topic_markers": [
+    "कार लोन",
+    "car loan",
+    "होम लोन",
+    "home loan",
+    "गृह ऋण",
+    "credit card",
+    "क्रेडिट कार्ड",
+    "bike loan",
+    "बाइक लोन",
+    "education loan",
+    "एजुकेशन लोन",
+    "gold loan",
+    "गोल्ड लोन",
+    "business loan",
+    "बिज़नेस लोन"
+  ],
+  "redirects": [
+    "यह इस कॉल पर नहीं बताया जा सकता। {reask}",
+    "इस विषय पर मैं इस कॉल में बात नहीं कर सकती। {reask}",
+    "यह अभी इस कॉल का हिस्सा नहीं है। {reask}"
+  ],
+  "steps": {
+    "ask_time": {
+      "goal": "Get permission for a short personal-loan call.",
+      "ask": "क्या आपके पर्सनल लोन की एक छोटी जानकारी के लिए दो मिनट मिल सकते हैं?",
+      "reask": "क्या दो मिनट मिल सकते हैं?",
+      "on_yes": "need",
+      "on_no": "close",
+      "on_done": "close"
+    },
+    "need": {
+      "goal": "Find out if they want a personal loan.",
+      "ask": "क्या आपको पर्सनल लोन की ज़रूरत है?",
+      "reask": "क्या आपको पर्सनल लोन चाहिए?",
+      "on_yes": "pitch",
+      "on_no": "close",
+      "on_done": "close"
+    },
+    "pitch": {
+      "goal": "Share only the personal-loan facts, then ask if they want to go ahead.",
+      "ask": "फ्लीका का पर्सनल लोन पचास हज़ार से दस लाख तक है, और ब्याज सालाना दस दशमलव नौ नौ प्रतिशत से शुरू होता है। यह राशि किस काम के लिए चाहिए?",
+      "reask": "यह राशि किस काम के लिए चाहिए?",
+      "on_yes": "book",
+      "on_no": "close",
+      "on_done": "close"
+    },
+    "persuade": {
+      "goal": "One sales try after the first no. Do not hang up on this turn.",
+      "ask": "कोई बात नहीं। फ्लीका के और ऑफ़र भी हैं। क्या मैं आपको वो ऑफ़र बता दूँ?",
+      "reask": "क्या मैं आपको बाकी ऑफ़र बता दूँ?",
+      "on_yes": "pitch",
+      "on_no": "close",
+      "on_done": "close"
+    },
+    "book": {
+      "goal": "Offer a teammate on WhatsApp or a callback. Do not take the application yourself.",
+      "ask": "क्या एक टीममेट आपको WhatsApp पर मैसेज करे या वापस कॉल करे?",
+      "reask": "क्या टीममेट आपसे WhatsApp या कॉल पर बात करे?",
+      "on_yes": "close",
+      "on_no": "close",
+      "on_done": "close"
+    },
+    "close": {
+      "goal": "End the call. The closing line is spoken by the end step, not here.",
+      "ask": "",
+      "reask": "",
+      "terminal": true
+    }
+  }
+}

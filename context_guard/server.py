@@ -18,6 +18,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 log = logging.getLogger("context_guard")
 
+from dialogue.graph import advance, after_greeting, graph_for, redirect_line, scripted_line, step_block
+from dialogue.intent import classify
+from dialogue.state import load_state, save_state
+from spoken_numbers import expand_numbers
 from guard import (
     SAFE_FALLBACK,
     caller_is_done,
@@ -99,6 +103,17 @@ def completion(text, stream, tool_calls=None):
         "object": "chat.completion",
         "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
     }
+
+
+def for_speech(text, policy):
+    """Say numbers as words before Dograh splits a sentence.
+
+    Dograh treats the dot in १०.९९ as a full stop, so the voice says the whole
+    number and then the fraction, and the decimal word is never spoken.
+    """
+    voice = str((policy or {}).get("voice_model") or "")
+    language = "English" if voice.lower().startswith("en") else "Hindi"
+    return expand_numbers(text or "", language)
 
 
 def chunk(content="", finish=None, tool_calls=None):
@@ -225,6 +240,42 @@ async def chat_completions(request: Request):
         return JSONResponse(completion(line, stream=False))
 
     prompt = closing or policy["prompt"]
+    dialogue = None if closing else graph_for(campaign_id)
+    graph_mode = ""
+    if dialogue is not None:
+        last_user = ""
+        for message in messages or []:
+            if message.get("role") == "user":
+                last_user = message_text(message)
+        current, refusals, opened = await load_state(call_request_id, dialogue.start)
+        if last_user.strip():
+            intent = classify(last_user, dialogue)
+            if not opened:
+                current, graph_mode, refusals = after_greeting(dialogue, intent, refusals)
+                opened = True
+            else:
+                current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
+            await save_state(call_request_id, current, refusals, opened)
+        else:
+            graph_mode = "ask"
+        if graph_mode in {"redirect", "ask", "reask"}:
+            salt = f"{call_request_id}:{last_user}"
+            if graph_mode == "redirect":
+                spoken = redirect_line(dialogue, current, salt)
+            else:
+                spoken = scripted_line(dialogue, current, graph_mode, salt)
+            spoken = for_speech(spoken, policy)
+            log.info("dialogue %s step=%s", graph_mode, current)
+            if stream:
+                async def redirect_now():
+                    yield chunk(spoken if spoken.endswith(" ") else spoken + " ")
+                    yield chunk(finish="stop")
+                    yield "data: [DONE]\n\n"
+
+                return StreamingResponse(redirect_now(), media_type="text/event-stream")
+            return JSONResponse(completion(spoken, stream=False))
+        if graph_mode != "close":
+            prompt = prompt.rstrip() + "\n\n" + step_block(dialogue, current, graph_mode)
     rewritten = force_sampling(body, include_handoff=not closing)
     rewritten["messages"] = prepare_messages(messages, prompt)
     rewritten["model"] = MODEL_NAME
@@ -248,12 +299,18 @@ async def chat_completions(request: Request):
         payload = upstream.json()
         message = ((payload.get("choices") or [{}])[0].get("message")) or {}
         guarded, violations = guard_text(message.get("content") or "", facts, forbidden, competitors, handoff)
+        guarded = for_speech(guarded, policy)
         await record_violations(policy, call_request_id, violations)
         message["content"] = guarded
         payload["choices"][0]["message"] = message
         return JSONResponse(payload)
 
-    ending = caller_is_done(messages) and not closing
+    # With a graph, only the graph decides to hang up. A first bare no is a
+    # sales try, not a goodbye. Without a graph, a clear goodbye still ends.
+    if dialogue is not None:
+        ending = graph_mode == "close" and not closing
+    else:
+        ending = caller_is_done(messages) and not closing
     voice_model = policy.get("voice_model") or ""
 
     # Hang up immediately — do not ask the LLM (it tends to re-answer the
@@ -325,6 +382,7 @@ async def chat_completions(request: Request):
 
         def speak(text):
             nonlocal spoke, ttft_ms, out_chars
+            text = for_speech(text, policy)
             if not text:
                 return None
             spoke = True

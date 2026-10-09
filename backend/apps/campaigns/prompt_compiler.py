@@ -116,7 +116,10 @@ def facts_block(context, business_name):
     if faqs:
         lines.append("FAQs:")
         lines.extend(faqs)
-    lines.append(f"Handoff line (use this verbatim when you do not know): {context.handoff_message}")
+    lines.append(
+        "Last-resort line, only for a real teammate follow-up or a price you must not invent: "
+        f"{context.handoff_message}"
+    )
     return "\n".join(lines)
 
 
@@ -163,9 +166,11 @@ def compile_system_prompt(campaign):
         "invent a detail that is not written there.\n"
         "- Never invent a price, a discount, a date, a product, or a policy that is not written in FACTS.\n"
         "- Never compare the business with another company, and never mention a competitor.\n"
-        "- Say the handoff line verbatim, and call the request_handoff function, only when the answer "
-        "would require a fact that is not in FACTS, or the question is outside the allowed topics. "
-        "A question on an allowed topic is not a handoff just because it is not copied from an FAQ.\n"
+        "- If the question is outside this campaign's product, or the answer is not in FACTS, "
+        "do not repeat one canned sentence. Say in fresh wording that you cannot cover it on this call, "
+        "then ask the current step's question again. Call request_handoff only when they insist on a "
+        "teammate or an application, not for every side question. A question on an allowed topic is not "
+        "a handoff just because it is not copied from an FAQ.\n"
         "- After any short opening words, add at most one sentence with the answer, then stop.\n"
         f"{lead}"
         "- If they interrupt, or the line goes quiet, do not say the greeting again and do not "

@@ -4,3 +4,4 @@ httpx>=0.27,<1
 websockets>=14,<16
 certifi
 pytest>=8,<9
+redis>=5,<7
