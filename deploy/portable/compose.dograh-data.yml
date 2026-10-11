@@ -1,0 +1,5 @@
+# First boot only. Postgres skips this once the volume already has data.
+services:
+  postgres:
+    volumes:
+      - ./dograh.sql.gz:/docker-entrypoint-initdb.d/01-dograh.sql.gz:ro

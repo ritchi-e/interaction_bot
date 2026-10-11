@@ -46,11 +46,11 @@ def _auth_ok(request: Request) -> bool:
 
 # hi_female / hi_male are the native Hindi speakers. The cheerful preset
 # speaks Hindi with an English accent, so it stays unused.
-# hi_female already peaks near full scale, so the gain is only the headroom
-# that remains before the soft knee.
+# hi_female loudness matches tts_samples/01_loud_same_voice.wav: compress, then
+# lift the average level. The old 1.8 gain left the voice quieter than that.
 # hi_male speaks much slower and leaves a gap after almost every word.
 # A higher speed plus a silence cap brings it in line with hi_female.
-_HINDI_FEMALE = ("hi_female", "Hindi", 1.8, 1.0)
+_HINDI_FEMALE = ("hi_female", "Hindi", 1.0, 1.0)
 _HINDI_MALE = ("hi_male", "Hindi", 1.8, 1.45)
 
 
@@ -65,6 +65,48 @@ def resolve_voice(model: str) -> tuple[str, str, float, float]:
     if male:
         return _HINDI_MALE
     return _HINDI_FEMALE
+
+
+class _CallLoudness:
+    """Compressor plus makeup, so the female voice matches the loud sample."""
+
+    def __init__(self, sample_rate: int = 24000):
+        self._threshold = 32768.0 * (10 ** (-26 / 20))
+        self._makeup = 10 ** (17 / 20)
+        self._attack = max(1, int(sample_rate * 0.005))
+        self._release = max(1, int(sample_rate * 0.060))
+        self._env = 0.0
+        self._held = b""
+
+    def push(self, pcm: bytes) -> bytes:
+        if not pcm and not self._held:
+            return b""
+        data = self._held + pcm
+        usable = len(data) - (len(data) % 2)
+        self._held = data[usable:]
+        if usable == 0:
+            return b""
+        samples = array.array("h")
+        samples.frombytes(data[:usable])
+        out = array.array("h")
+        for sample in samples:
+            level = abs(sample)
+            coeff = self._attack if level > self._env else self._release
+            self._env += (level - self._env) / coeff
+            if self._env <= self._threshold or self._env == 0:
+                gain = 1.0
+            else:
+                gain = (self._threshold + (self._env - self._threshold) / 6) / self._env
+            value = sample * gain * self._makeup
+            if value > 30000:
+                value = 30000
+            elif value < -30000:
+                value = -30000
+            out.append(int(value))
+        return out.tobytes()
+
+    def flush(self) -> bytes:
+        return self.push(b"\x00" if self._held else b"")
 
 
 def _amplify(pcm: bytes, gain: float) -> bytes:
@@ -96,12 +138,21 @@ app = FastAPI()
 
 @app.get("/health")
 def health():
+    # The proxy is ready even when the voice model is not loaded yet, so the
+    # rest of the app can start on a new machine and the model can be attached
+    # afterwards. A call still fails until the upstream answers.
+    upstream_status = "down"
     try:
         response = httpx.get(f"{UPSTREAM}/health", timeout=3.0)
         response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=503, detail="voxtral not ready") from exc
-    return {"service": "voxtral-proxy", "upstream": UPSTREAM}
+        upstream_status = "up"
+    except httpx.HTTPError:
+        upstream_status = "down"
+    return {
+        "service": "voxtral-proxy",
+        "upstream": UPSTREAM,
+        "upstream_status": upstream_status,
+    }
 
 
 @app.get("/v1/models")
@@ -156,20 +207,37 @@ async def speech(request: Request):
             if index:
                 yield gap
             pace = _SilenceCap() if voice == "hi_male" else None
+            loud = _CallLoudness() if voice == "hi_female" else None
             goodbye = "अलविदा" in sentence or "alvida" in sentence.casefold()
             spoken = b""
+
+            def shaped(piece: bytes) -> bytes:
+                if pace is not None and piece:
+                    piece = pace.push(piece)
+                if loud is not None and piece:
+                    piece = loud.push(piece)
+                return piece
+
             async for chunk in _stream(sentence, voice, language, gain, speed):
-                piece = pace.push(chunk) if pace is not None else chunk
+                piece = shaped(chunk)
                 if goodbye:
                     spoken += piece
                 elif piece:
                     yield piece
             if pace is not None:
                 tail = pace.flush()
+                if loud is not None and tail:
+                    tail = loud.push(tail)
                 if goodbye:
                     spoken += tail
                 elif tail:
                     yield tail
+            if loud is not None:
+                rest = loud.flush()
+                if goodbye:
+                    spoken += rest
+                elif rest:
+                    yield rest
             if goodbye and spoken:
                 yield _falling_goodbye(spoken)
         # Also after the last sentence, so the next spoken clip does not

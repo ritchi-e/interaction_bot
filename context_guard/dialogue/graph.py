@@ -19,6 +19,7 @@ class Step:
     on_no: str
     on_done: str
     terminal: bool
+    tone: str
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ def load_graphs() -> dict[str, DialogueGraph]:
                 on_no=str(item.get("on_no") or ""),
                 on_done=str(item.get("on_done") or "close"),
                 terminal=bool(item.get("terminal")),
+                tone=str(item.get("tone") or "cheerful"),
             )
         graph = DialogueGraph(
             campaign_id=str(raw["campaign_id"]),
@@ -120,10 +122,13 @@ def scripted_line(graph: DialogueGraph, step_id: str, mode: str, salt: str) -> s
     """A fixed next line, so a yes cannot wander into a later fact."""
     step = graph.step(step_id if step_id in graph.steps else graph.start)
     question = step.ask if mode == "ask" else (step.reask or step.ask)
-    if mode == "reask":
-        openings = ("ठीक है। ", "कोई बात नहीं। ", "अच्छा। ")
+    # A refusal, a reask, or a calm step stays plain. Cheerful words are only
+    # for a caller who is still going along. The voice follows the wording.
+    cheerful = mode == "ask" and step.tone == "cheerful"
+    if cheerful:
+        openings = ("बहुत बढ़िया, ", "अच्छा, ", "जी, सुनिए, ")
     else:
-        openings = ("जी। ", "अच्छा। ", "ठीक है। ")
+        openings = ("ठीक है। ", "कोई बात नहीं। ", "अच्छा। ")
     opening = openings[abs(hash(salt)) % len(openings)]
     return (opening + question).strip()
 
@@ -142,18 +147,29 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str) -> str:
     step = graph.step(step_id if step_id in graph.steps else graph.start)
     question = step.ask or step.reask
     again = step.reask or step.ask
+    if step.tone == "cheerful" and mode != "reask":
+        mood = (
+            "The caller is still with you. Use short, warm sentences and one "
+            "natural exclamation, such as बहुत बढ़िया! Do not sound flat."
+        )
+    else:
+        mood = (
+            "The caller refused, declined a detail, or this step is not a "
+            "celebration. Be calm and brief. No exclamation. Do not say बहुत बढ़िया, "
+            "अच्छा!, or सुनिए!."
+        )
     if mode == "ask":
         instruction = (
             "The caller just answered the previous question. Ask only the next "
-            "question, in your own words, in one or two sentences. Do not repeat "
-            f"the greeting. Next question: {question}"
+            "question, in your own words, in one or two short sentences. Do not repeat "
+            f"the greeting. Next question: {question} {mood}"
         )
     else:
         instruction = (
             "Answer only from FACTS, in one sentence, then ask the current "
             f"question again: {again} If the answer is not in FACTS, do not use "
             "a canned handoff line. Say you cannot cover that on this call, in "
-            f"fresh wording, and ask: {again}"
+            f"fresh wording, and ask: {again} {mood}"
         )
     return (
         "CURRENT_STEP:\n"

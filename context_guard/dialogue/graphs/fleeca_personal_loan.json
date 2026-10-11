@@ -46,15 +46,17 @@
       "reask": "यह राशि किस काम के लिए चाहिए?",
       "on_yes": "book",
       "on_no": "close",
-      "on_done": "close"
+      "on_done": "close",
+      "tone": "cheerful"
     },
     "persuade": {
       "goal": "One sales try after the first no. Do not hang up on this turn.",
-      "ask": "कोई बात नहीं। फ्लीका के और ऑफ़र भी हैं। क्या मैं आपको वो ऑफ़र बता दूँ?",
+      "ask": "फ्लीका के और ऑफ़र भी हैं। क्या मैं आपको वो ऑफ़र बता दूँ?",
       "reask": "क्या मैं आपको बाकी ऑफ़र बता दूँ?",
       "on_yes": "pitch",
       "on_no": "close",
-      "on_done": "close"
+      "on_done": "close",
+      "tone": "calm"
     },
     "book": {
       "goal": "Offer a teammate on WhatsApp or a callback. Do not take the application yourself.",
@@ -62,7 +64,8 @@
       "reask": "क्या टीममेट आपसे WhatsApp या कॉल पर बात करे?",
       "on_yes": "close",
       "on_no": "close",
-      "on_done": "close"
+      "on_done": "close",
+      "tone": "cheerful"
     },
     "close": {
       "goal": "End the call. The closing line is spoken by the end step, not here.",

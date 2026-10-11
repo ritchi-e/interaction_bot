@@ -1,0 +1,125 @@
+# The live app, without a TTS model.
+# Speech stays up and calls http://tts:8091 once that container exists.
+# Created by deploy/portable/pack.sh from the running containers.
+
+name: caller
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - ./caller.env
+    environment:
+      POSTGRES_DB: caller
+      POSTGRES_USER: caller
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./caller.sql.gz:/docker-entrypoint-initdb.d/01-caller.sql.gz:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caller -d caller"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+
+  backend:
+    image: caller-portable:backend
+    env_file:
+      - ./caller.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_DEBUG: "0"
+      SPEECH_TTS_URL: http://speech-tts:8000/v1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      speech-tts:
+        condition: service_healthy
+
+  celery:
+    image: caller-portable:celery
+    command: celery -A config worker --loglevel=info
+    env_file:
+      - ./caller.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      SPEECH_TTS_URL: http://speech-tts:8000/v1
+    depends_on:
+      - backend
+      - redis
+
+  celery-beat:
+    image: caller-portable:beat
+    command: celery -A config beat --loglevel=info
+    env_file:
+      - ./caller.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+      - backend
+
+  context-guard:
+    image: caller-portable:guard
+    env_file:
+      - ./caller.env
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+      SPEECH_TTS_URL: http://speech-tts:8000/v1
+    depends_on:
+      - backend
+      - speech-tts
+
+  speech-tts:
+    image: caller-portable:speech
+    env_file:
+      - ./caller.env
+    environment:
+      VOXTRAL_UPSTREAM: ${TTS_UPSTREAM:-http://tts:8091}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  frontend:
+    image: caller-portable:frontend
+    environment:
+      DISABLE_API_PROXY: "1"
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-ops@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - backend
+      - frontend
+
+networks:
+  default:
+    name: caller
+
+volumes:
+  pgdata:
+  caddy-data:

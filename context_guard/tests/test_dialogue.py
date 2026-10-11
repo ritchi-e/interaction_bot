@@ -27,7 +27,8 @@ def test_yes_after_the_greeting_gives_the_offer_instead_of_asking_again():
     spoken = scripted_line(graph, step, mode, "call")
     assert "दो मिनट" not in spoken
     assert "तीस सेकंड" not in spoken
-    assert "ऑफ़र" not in spoken or "दस दशमलव" in spoken
+    assert "दस दशमलव" in spoken
+    assert "बढ़िया" in spoken or "सुनिए" in spoken or spoken.startswith("अच्छा!")
 
 
 def test_first_no_offers_more_instead_of_thirty_seconds():
@@ -37,6 +38,8 @@ def test_first_no_offers_more_instead_of_thirty_seconds():
     spoken = scripted_line(graph, step, mode, "call")
     assert "तीस सेकंड" not in spoken
     assert "ऑफ़र" in spoken
+    assert "बढ़िया" not in spoken
+    assert "!" not in spoken
 
 
 def test_yes_moves_to_the_need_question():

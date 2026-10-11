@@ -71,7 +71,7 @@ DONE_RE = re.compile(
     r"goodbye|good bye|\bbye\b|that'?s it|that is it|no thanks|no thank you|"
     r"i'?m good|im good|all good|that'?s fine|nothing more|"
     r"not interested|no interest|hang up|cut the call|end the call|stop calling)\b"
-    r"|और कुछ नहीं|कुछ नहीं|नहीं चाहिए|मुझे नहीं चाहिए|"
+    r"|और कुछ नहीं|कुछ नहीं(?!\s*सोच)|नहीं चाहिए|मुझे नहीं चाहिए|"
     r"बस इतना|बस हो गया|हो गया बस|रहने दो|"
     r"रुचि नहीं|इंटरेस्ट नहीं|कॉल मत कर|फोन मत कर|"
     r"अलविदा|गुड ?बाय|कॉल काट|कॉल काटो|फोन काट|फोन रख|काट दो|बंद करो"

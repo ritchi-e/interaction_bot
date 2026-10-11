@@ -194,7 +194,9 @@ _NUMBER = re.compile(r"\b(\d{1,3}(?:,\d{2,3})+|\d+)(?:\.(\d+))?\b")
 
 SAMPLE_RATE = 24000
 SENTENCE_GAP = b"\x00" * int(SAMPLE_RATE * 0.4) * 2
-_SENTENCE_END = re.compile(r"(?<=[.!?।])\s+")
+# An exclamation is cheer inside one breath ("नमस्ते! फ्लीका…"). Splitting it
+# makes that word a separate clip with a different pitch from the rest.
+_SENTENCE_END = re.compile(r"(?<=[.?।])\s+")
 
 
 def split_sentences(text: str) -> list[str]:

@@ -1,0 +1,59 @@
+# The voice model, started after the app. Nothing here is baked in.
+# The app reaches this container at http://tts:8091.
+#
+# Same Voxtral server as today, model chosen at start:
+#   TTS_MODEL=mistralai/Voxtral-4B-TTS-2603 ./start-tts.sh
+#
+# A different server (for example Svara) that speaks POST /v1/audio/speech:
+#   TTS_IMAGE=your-tts-image TTS_COMMAND='...' ./start-tts.sh
+# Map that server's port onto 8091 inside this compose file if it is not 8091.
+
+name: caller-tts
+
+services:
+  tts:
+    image: ${TTS_IMAGE:-vllm/vllm-omni:v0.30.0}
+    container_name: tts
+    gpus: all
+    ipc: host
+    shm_size: "8gb"
+    environment:
+      HF_HOME: /models/hf-cache
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ${CALLER_DATA_ROOT:-/data/caller}/speech-models:/models
+      - ./voxtral_tts.l4.yaml:/opt/voxtral_tts.l4.yaml:ro
+    command:
+      - vllm
+      - serve
+      - ${TTS_MODEL:-mistralai/Voxtral-4B-TTS-2603}
+      - --omni
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8091"
+      - --deploy-config
+      - /opt/voxtral_tts.l4.yaml
+      - --init-timeout
+      - "1800"
+      - --trust-remote-code
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health')",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 60
+      start_period: 900s
+    networks:
+      - caller
+
+networks:
+  caller:
+    external: true
+    name: caller
