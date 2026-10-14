@@ -1,0 +1,11 @@
+# Host fixes for this GPU box. Include after dograh.minio.yml:
+#   docker compose -f docker-compose.yaml -f ../deploy/dograh.override.yml \
+#     -f ../deploy/dograh.minio.yml -f ../deploy/dograh.host.yml up -d
+services:
+  minio:
+    # bitnamilegacy/minio:latest runs as uid 1001 but its data dir is 1000:1000.
+    user: "0:0"
+  api:
+    # The image user cannot create /app/dograh_pcm_cache (mode 755, owned by uid 1000).
+    tmpfs:
+      - /app/dograh_pcm_cache:uid=999,gid=999,mode=1777

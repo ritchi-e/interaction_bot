@@ -154,6 +154,7 @@ SPEECH_VOICE_NAME = os.environ.get("SPEECH_VOICE_NAME", "female")
 # deepgram_nova3_api is the name already stored in this deployment's env.
 DEEPGRAM_API_KEY = (
     os.environ.get("DEEPGRAM_API_KEY")
+    or os.environ.get("DEEPGRAM_NOVA3_API_KEY")
     or os.environ.get("deepgram_nova3_api")
     or ""
 )
