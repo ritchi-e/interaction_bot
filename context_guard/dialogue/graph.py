@@ -3,10 +3,27 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
+log = logging.getLogger("context_guard")
 _GRAPHS = Path(__file__).resolve().parent / "graphs"
+_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+_GRAPH_ERRORS: list[str] = []
+# A no in front of a longer turn. A bare no is matched separately.
+_LEADING_NO = re.compile(
+    r"^(?:नहीं|नही|ना|no|nahi|nah)(?=\s|$|[,.!?।])",
+    re.IGNORECASE,
+)
+_BARE_NO = re.compile(
+    r"^(?:no|nope|nah|nahi|nahin|na|नहीं|ना|नही)[\s.!?।]*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -34,12 +51,54 @@ class DialogueGraph:
         return self.steps[step_id]
 
 
+def graph_problems(raw: dict) -> list[str]:
+    """Reject a graph the runtime cannot follow. A bad file is not loaded."""
+    problems = []
+    campaign_id = str(raw.get("campaign_id") or "")
+    if not _UUID.fullmatch(campaign_id):
+        problems.append("campaign_id is not a UUID")
+    steps = raw.get("steps")
+    if not isinstance(steps, dict) or not steps:
+        problems.append("steps is missing")
+        return problems
+    start = str(raw.get("start") or "")
+    if start not in steps:
+        problems.append(f"start {start!r} is not a step")
+    for required in ("persuade", "close"):
+        if required not in steps:
+            problems.append(f"missing step {required}")
+    close = steps.get("close")
+    if isinstance(close, dict):
+        if not close.get("terminal"):
+            problems.append("close must be terminal")
+        if str(close.get("ask") or "").strip():
+            problems.append("close ask must be empty; the end step speaks the closing line")
+    for step_id, item in steps.items():
+        if not isinstance(item, dict):
+            problems.append(f"{step_id} is not an object")
+            continue
+        for key in ("on_yes", "on_no", "on_done"):
+            target = str(item.get(key) or "")
+            if target and target not in steps:
+                problems.append(f"{step_id}.{key} points to unknown step {target}")
+    return problems
+
+
 def load_graphs() -> dict[str, DialogueGraph]:
+    global _GRAPH_ERRORS
     found: dict[str, DialogueGraph] = {}
+    errors: list[str] = []
     if not _GRAPHS.is_dir():
+        _GRAPH_ERRORS = errors
         return found
     for path in sorted(_GRAPHS.glob("*.json")):
         raw = json.loads(path.read_text(encoding="utf-8"))
+        problems = graph_problems(raw)
+        if problems:
+            message = f"{path.name}: " + "; ".join(problems)
+            errors.append(message)
+            log.warning("dialogue graph not loaded: %s", message)
+            continue
         steps = {}
         for step_id, item in (raw.get("steps") or {}).items():
             steps[step_id] = Step(
@@ -61,10 +120,19 @@ def load_graphs() -> dict[str, DialogueGraph]:
             redirects=tuple(raw.get("redirects") or ()),
         )
         found[graph.campaign_id] = graph
+        log.info("dialogue graph loaded campaign=%s file=%s", graph.campaign_id, path.name)
+    _GRAPH_ERRORS = errors
     return found
 
 
 _CACHE: dict[str, DialogueGraph] | None = None
+
+
+def graph_report() -> dict:
+    """Which campaign graphs loaded, and which files were rejected."""
+    graph_for("")
+    cache = _CACHE or {}
+    return {"loaded": sorted(cache), "errors": list(_GRAPH_ERRORS)}
 
 
 def graph_for(campaign_id: str) -> DialogueGraph | None:
@@ -97,7 +165,11 @@ def advance(graph: DialogueGraph, step_id: str, intent: str, refusals: int = 0) 
     if intent == "off_topic":
         return step.id, "redirect", refusals
     if intent == "decline":
-        return step.id, "reask", refusals
+        # They refused this detail. Say the next unsaid step, not this question again.
+        nxt = step.on_yes or "close"
+        if nxt == step.id:
+            return "close", "close", refusals
+        return (*_land(graph, nxt), refusals)
     if intent == "done":
         landed, mode = _land(graph, step.on_done or "close")
         return landed, mode, refusals
@@ -122,35 +194,104 @@ def scripted_line(graph: DialogueGraph, step_id: str, mode: str, salt: str) -> s
     """A fixed next line, so a yes cannot wander into a later fact."""
     step = graph.step(step_id if step_id in graph.steps else graph.start)
     question = step.ask if mode == "ask" else (step.reask or step.ask)
-    # A refusal, a reask, or a calm step stays plain. Cheerful words are only
-    # for a caller who is still going along. The voice follows the wording.
-    cheerful = mode == "ask" and step.tone == "cheerful"
-    if cheerful:
-        openings = ("बहुत बढ़िया, ", "अच्छा, ", "जी, सुनिए, ")
-    else:
-        openings = ("ठीक है। ", "कोई बात नहीं। ", "अच्छा। ")
-    opening = openings[abs(hash(salt)) % len(openings)]
-    return (opening + question).strip()
+    # Speak the step itself. A stock opener ("बहुत बढ़िया") made every turn
+    # sound the same, regardless of what the caller just said.
+    return question.strip()
 
 
 def redirect_line(graph: DialogueGraph, step_id: str, salt: str) -> str:
     step = graph.step(step_id if step_id in graph.steps else graph.start)
     question = step.reask or step.ask
     templates = graph.redirects or (
-        "यह इस कॉल पर नहीं बताया जा सकता। {reask}",
+        "इस कॉल पर पर्सनल लोन की बात है। {reask}",
     )
     template = templates[abs(hash(salt)) % len(templates)]
     return template.format(reask=question).strip()
 
 
-def step_block(graph: DialogueGraph, step_id: str, mode: str) -> str:
+def declined_pending(text: str) -> bool:
+    """A no to the question just asked, followed by something else.
+
+    A bare no is handled by the graph. This is "no, it is for my child, how
+    does the app work?" The pending question has already been answered.
+    """
+    raw = " ".join((text or "").split())
+    if not raw or _BARE_NO.match(raw):
+        return False
+    return _LEADING_NO.match(raw) is not None
+
+
+def line_only_asks(text: str) -> bool:
+    """True when this line is only a question, with nothing explained first."""
+    parts = [part.strip() for part in re.split(r"(?<=[.!?।])\s+", text or "") if part.strip()]
+    if not parts:
+        return False
+    return all(_is_question(part) for part in parts)
+
+
+def _is_question(text: str) -> bool:
+    raw = text or ""
+    return "?" in raw or "क्या" in raw or raw.endswith(("चाहेंगे", "चाहिए", "चाहोगे"))
+
+
+def yes_should_explain(graph: DialogueGraph, step_id: str) -> bool:
+    """A yes would otherwise land on another bare question.
+
+    "Shall I tell you the features?" must be answered with the features,
+    not with "what do you want to know?"
+    """
+    step = graph.step(step_id if step_id in graph.steps else graph.start)
+    if not step.on_yes:
+        return False
+    nxt = graph.step(step.on_yes)
+    if nxt.terminal or nxt.id == step.id:
+        return False
+    return line_only_asks(nxt.ask)
+
+
+def next_unsaid_ask(graph: DialogueGraph, step_id: str) -> str:
+    """The next step's question. Empty when the next step ends the call."""
+    step = graph.step(step_id if step_id in graph.steps else graph.start)
+    nxt = graph.step(step.on_yes) if step.on_yes else None
+    if nxt is None or nxt.terminal or nxt.id == step.id:
+        return ""
+    return (nxt.ask or "").strip()
+
+
+def replace_repeated_question(text: str, ask: str, reask: str, replacement: str) -> str:
+    """Drop a sentence that asks the question the caller already answered."""
+    parts = [part.strip() for part in re.split(r"(?<=[.!?।])\s+", text or "") if part.strip()]
+    if not parts:
+        return text or ""
+    targets = [piece for piece in (_flat(ask), _flat(reask)) if piece]
+    kept = []
+    swapped = False
+    for part in parts:
+        flat = _flat(part)
+        same = bool(flat) and any(flat == target or target in flat or flat in target for target in targets)
+        if same:
+            if not swapped and replacement:
+                kept.append(replacement)
+                swapped = True
+            continue
+        kept.append(part)
+    return " ".join(kept).strip()
+
+
+def _flat(text: str) -> str:
+    bare = re.sub(r"<[^>]+>", "", text or "")
+    bare = re.sub(r"[।.!?…,]", "", bare)
+    return " ".join(bare.split())
+
+
+def step_block(graph: DialogueGraph, step_id: str, mode: str, follow: str = "", avoid_repeat: bool = False) -> str:
     step = graph.step(step_id if step_id in graph.steps else graph.start)
     question = step.ask or step.reask
     again = step.reask or step.ask
     if step.tone == "cheerful" and mode != "reask":
         mood = (
-            "The caller is still with you. Use short, warm sentences and one "
-            "natural exclamation, such as बहुत बढ़िया! Do not sound flat."
+            "The caller is still with you. Answer what they just said, in short "
+            "warm sentences. Do not start with बहुत बढ़िया, बहुत अच्छा, or very good."
         )
     else:
         mood = (
@@ -164,17 +305,43 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str) -> str:
             "question, in your own words, in one or two short sentences. Do not repeat "
             f"the greeting. Next question: {question} {mood}"
         )
-    else:
+    elif follow:
         instruction = (
-            "Answer only from FACTS, in one sentence, then ask the current "
-            f"question again: {again} If the answer is not in FACTS, do not use "
-            "a canned handoff line. Say you cannot cover that on this call, in "
-            f"fresh wording, and ask: {again} {mood}"
+            "They agreed to what you just offered. Explain that from FACTS now, "
+            "in one or two short Hindi sentences, before you ask anything else. "
+            "Do not reply with only a new question. Do not change the subject, "
+            "and do not say you will tell them later. "
+            f"What you offered: {follow} {mood}"
         )
+    else:
+        if avoid_repeat:
+            nxt = next_unsaid_ask(graph, step.id)
+            follow_up = (
+                f"If you ask one follow-up, ask only this: {nxt}"
+                if nxt
+                else "Do not ask another question."
+            )
+            instruction = (
+                "They already answered the question you just asked, and then asked "
+                "something else. If their question is written in FACTS, say that "
+                "answer now. If it is not in FACTS, say only the handoff line. "
+                "Do not ask that question again. "
+                f"{follow_up} {mood}"
+            )
+        else:
+            instruction = (
+                "They asked a question. If the answer is written in FACTS, say that "
+                "answer now, in one or two short Hindi sentences, using those words. "
+                "Do not say you cannot tell them yet. Do not say you will explain it "
+                "later. Do not start with a different topic, including the interest "
+                "rates, when they asked about something else. After the answer, one "
+                f"short question is enough. Do not repeat this if they refused it: {again} {mood}"
+            )
     return (
         "CURRENT_STEP:\n"
         f"- id: {step.id}\n"
         f"- goal: {step.goal}\n"
         f"- {instruction}\n"
-        "- Stay on this step. Do not jump to a later question.\n"
+        "- An allowed question is answered in this reply, even when a later step also covers it.\n"
+        "- Do not invent a fact that is not in FACTS.\n"
     )

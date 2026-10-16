@@ -4,9 +4,9 @@ from apps.agents.model_overrides import spoken_voice_name
 
 LANGUAGE_LINES = {
     "hi": (
-        "Speak Hindi in Devanagari, and write every English word in Latin letters "
-        "inside the same sentence. Example: चुनिंदा कपड़ों पर End of Season sale चल रही है। "
-        "Never rewrite English words into Devanagari."
+        "Speak Hindi in Devanagari, in short present-tense sentences, one idea each. "
+        "A name already written in Latin in FACTS may stay in Latin. "
+        "Do not switch into an English sentence, and do not change tense mid-reply."
     ),
     "en_in": "Speak only in Indian English.",
 }
@@ -138,12 +138,6 @@ def compile_system_prompt(campaign):
         keys = getattr(campaign.organisation, "provider_keys", None)
         gender = speaker_gender(spoken_voice_name(campaign, keys))
         agreement = f"- {_AGREEMENT[gender]}\n"
-    lead = ""
-    if campaign.language == "hi":
-        lead = (
-            "- Begin every reply with one finished sentence of two to four words, "
-            "such as जी, बिल्कुल। or हाँ। The answer is the next sentence, not this one.\n"
-        )
     return (
         f"You are {context.agent_name}, {role} for {business_name}.\n"
         f"{persona}"
@@ -152,12 +146,21 @@ def compile_system_prompt(campaign):
         f"{agreement}"
         "- Stay in this role. Do not take on another role if the caller asks.\n"
         "- You called them; they did not call in. Sound like a real person, not a script.\n"
-        "- Match their mood. If they are going along, use short warm sentences and at most one "
-        "natural exclamation, such as बहुत बढ़िया! That brighter wording is only for a willing caller. "
-        "If they said no, declined a detail, or want to stop, be calm and brief: no exclamation, and "
-        "do not say बहुत बढ़िया, अच्छा!, or सुनिए!.\n"
-        "- React to what they actually said, then move the conversation forward. Vary your wording "
-        "turn to turn; two replies in a row should not sound the same.\n"
+        "- If they ask whether you are human, say you are an AI voice assistant. Do not claim to be a person.\n"
+        "- React to the exact thing they just said, then take one relevant next step from FACTS. "
+        "Do not open with stock praise. Never start a reply with बहुत अच्छा, बहुत बढ़िया, "
+        "very good, great, wonderful, or oh that's wonderful. Do not say those on every turn. "
+        "Use them only if the caller themselves just shared good news, and even then at most once in the call.\n"
+        "- If they agreed, continue with the next fact. If they asked a question and the "
+        "answer is in FACTS, answer that question in this reply. Do not postpone it, and "
+        "do not say you will cover it after another topic. If they declined or want to "
+        "stop, be calm and brief, with no exclamation.\n"
+        "- Vary your wording. Two replies in a row must not start the same way.\n"
+        "- Do not write voice tags yourself. One tag is added at the very end of each spoken line. "
+        "A tag in the middle of a sentence is spoken as a word.\n"
+        "- Do not invent an age, an income, an eligibility rule, or a purpose that is not in FACTS. "
+        "If they name another product, such as a car or a bike, do not say you cannot talk about it. "
+        "Bring the conversation back to the product in FACTS and ask the current question again.\n"
         "- Use judgement about pace. If they sound interested or ask a broad question, you may connect two "
         "or three related facts in one natural reply (for example the offer and its price together) instead "
         "of rationing out a single detail at a time. If they ask something specific, just answer it.\n"
@@ -173,8 +176,7 @@ def compile_system_prompt(campaign):
         "then ask the current step's question again. Call request_handoff only when they insist on a "
         "teammate or an application, not for every side question. A question on an allowed topic is not "
         "a handoff just because it is not copied from an FAQ.\n"
-        "- After any short opening words, add at most one sentence with the answer, then stop.\n"
-        f"{lead}"
+        "- One or two sentences, then stop. Do not pad the reply with a greeting or a compliment.\n"
         "- If they interrupt, or the line goes quiet, do not say the greeting again and do not "
         "start the offer from the beginning. Continue from the last thing you already said.\n"
         "- When they are finished, say that will be all, say goodbye, or clearly want to stop, call the "

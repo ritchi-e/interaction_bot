@@ -18,7 +18,20 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 log = logging.getLogger("context_guard")
 
-from dialogue.graph import advance, after_greeting, graph_for, redirect_line, scripted_line, step_block
+from dialogue.graph import (
+    advance,
+    after_greeting,
+    declined_pending,
+    graph_for,
+    graph_report,
+    next_unsaid_ask,
+    redirect_line,
+    replace_repeated_question,
+    scripted_line,
+    step_block,
+    yes_should_explain,
+)
+from dialogue.style import apply_style, choose_tag
 from dialogue.intent import classify
 from dialogue.state import load_state, save_state
 from spoken_numbers import expand_numbers
@@ -71,7 +84,8 @@ SPEECH_API_TOKEN = (os.environ.get("SPEECH_API_TOKEN") or "").strip()
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    report = graph_report()
+    return {"status": "ok", "graphs": report["loaded"], "graph_errors": report["errors"]}
 
 
 @app.get("/v1/models")
@@ -103,6 +117,34 @@ def completion(text, stream, tool_calls=None):
         "object": "chat.completion",
         "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
     }
+
+
+def styled(text, policy, user_text="", mode="", tone=""):
+    """One Svara tag at the end of the line. The model uses it for emotion."""
+    spoken = for_speech(text, policy)
+    if not spoken:
+        return spoken
+    return apply_style(spoken, choose_tag(user_text, mode, tone, spoken))
+
+
+def _offered_something_else(dialogue, step_id, assistant_text):
+    """True when the caller agreed to a question this step did not ask."""
+    bare = _spoken_text(assistant_text)
+    if not bare or ("?" not in bare and "क्या" not in bare):
+        return False
+    step = dialogue.step(step_id if step_id in dialogue.steps else dialogue.start)
+    for line in (step.ask, step.reask):
+        line = _spoken_text(line)
+        if line and line in bare:
+            return False
+    return True
+
+
+def _spoken_text(text):
+    """Drop voice tags and the space they leave in front of punctuation."""
+    bare = re.sub(r"<[^>]+>", "", text or "")
+    bare = re.sub(r"\s+([।!?.,])", r"\1", bare)
+    return " ".join(bare.split())
 
 
 def for_speech(text, policy):
@@ -232,7 +274,8 @@ async def chat_completions(request: Request):
     if line:
         if stream:
             async def close_once():
-                yield chunk(line if line.endswith((" ", "।", ".", "?")) else line + " ")
+                spoken = styled(line, policy, "", "close", "calm")
+                yield chunk(spoken if spoken.endswith((" ", "।", ".", ">", "?")) else spoken + " ")
                 yield chunk(finish="stop")
                 yield "data: [DONE]\n\n"
 
@@ -242,40 +285,98 @@ async def chat_completions(request: Request):
     prompt = closing or policy["prompt"]
     dialogue = None if closing else graph_for(campaign_id)
     graph_mode = ""
+    last_user = ""
+    last_assistant = ""
+    tone = ""
+    follow = ""
     if dialogue is not None:
-        last_user = ""
         for message in messages or []:
             if message.get("role") == "user":
                 last_user = message_text(message)
+            elif message.get("role") == "assistant":
+                last_assistant = message_text(message)
         current, refusals, opened = await load_state(call_request_id, dialogue.start)
         if last_user.strip():
             intent = classify(last_user, dialogue)
             if not opened:
                 current, graph_mode, refusals = after_greeting(dialogue, intent, refusals)
                 opened = True
+            elif intent == "yes" and (
+                _offered_something_else(dialogue, current, last_assistant)
+                or yes_should_explain(dialogue, current)
+            ):
+                # They agreed to a question. Say that thing before any new question.
+                # If the next scripted line is only another question, move the
+                # step forward so the same offer is not explained forever.
+                if yes_should_explain(dialogue, current) and not _offered_something_else(
+                    dialogue, current, last_assistant
+                ):
+                    current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
+                graph_mode = "answer"
+                follow = re.sub(r"<[^>]+>", "", last_assistant).strip()
             else:
                 current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
             await save_state(call_request_id, current, refusals, opened)
         else:
             graph_mode = "ask"
-        if graph_mode in {"redirect", "ask", "reask"}:
-            salt = f"{call_request_id}:{last_user}"
-            if graph_mode == "redirect":
-                spoken = redirect_line(dialogue, current, salt)
-            else:
-                spoken = scripted_line(dialogue, current, graph_mode, salt)
-            spoken = for_speech(spoken, policy)
-            log.info("dialogue %s step=%s", graph_mode, current)
-            if stream:
-                async def redirect_now():
-                    yield chunk(spoken if spoken.endswith(" ") else spoken + " ")
-                    yield chunk(finish="stop")
-                    yield "data: [DONE]\n\n"
+    if dialogue is not None and graph_mode in {"redirect", "ask", "reask"}:
+        salt = f"{call_request_id}:{last_user}"
+        if graph_mode == "redirect":
+            spoken = redirect_line(dialogue, current, salt)
+        else:
+            spoken = scripted_line(dialogue, current, graph_mode, salt)
+        tone = dialogue.step(current).tone
+        spoken = styled(spoken, policy, last_user, graph_mode, tone)
+        log.info(
+            "dialogue campaign=%s step=%s mode=%s",
+            campaign_id,
+            current,
+            graph_mode,
+        )
+        if stream:
+            async def redirect_now():
+                yield chunk(spoken if spoken.endswith(" ") else spoken + " ")
+                yield chunk(finish="stop")
+                yield "data: [DONE]\n\n"
 
-                return StreamingResponse(redirect_now(), media_type="text/event-stream")
-            return JSONResponse(completion(spoken, stream=False))
-        if graph_mode != "close":
-            prompt = prompt.rstrip() + "\n\n" + step_block(dialogue, current, graph_mode)
+            return StreamingResponse(redirect_now(), media_type="text/event-stream")
+        return JSONResponse(completion(spoken, stream=False))
+    if dialogue is not None and graph_mode != "close":
+        tone = dialogue.step(current).tone
+        prompt = prompt.rstrip() + "\n\n" + step_block(
+            dialogue,
+            current,
+            graph_mode,
+            follow,
+            avoid_repeat=declined_pending(last_user),
+        )
+    repeat_used = False
+
+    def _swap_repeated_question(text):
+        """One follow-up, and not the question they just answered with no."""
+        nonlocal repeat_used
+        if dialogue is None or graph_mode != "answer" or not declined_pending(last_user):
+            return text
+        step = dialogue.step(current)
+        replacement = "" if repeat_used else next_unsaid_ask(dialogue, current)
+        swapped = replace_repeated_question(text, step.ask, step.reask, replacement)
+        if swapped != (text or "").strip() and replacement:
+            repeat_used = True
+        return swapped
+
+    def _unanswered_fallback():
+        """Speak the handoff when the model only calls the handoff tool.
+
+        A no plus a new question still gets the next unsaid question, not the
+        one they already answered.
+        """
+        lines = [handoff]
+        if dialogue is not None and declined_pending(last_user):
+            nxt = next_unsaid_ask(dialogue, current)
+            if nxt:
+                lines.append(nxt)
+        return " ".join(line for line in lines if line).strip()
+
     rewritten = force_sampling(body, include_handoff=not closing)
     rewritten["messages"] = prepare_messages(messages, prompt)
     rewritten["model"] = MODEL_NAME
@@ -298,8 +399,15 @@ async def chat_completions(request: Request):
             return JSONResponse(completion(handoff, stream=False), status_code=200)
         payload = upstream.json()
         message = ((payload.get("choices") or [{}])[0].get("message")) or {}
-        guarded, violations = guard_text(message.get("content") or "", facts, forbidden, competitors, handoff)
-        guarded = for_speech(guarded, policy)
+        tools = message.get("tool_calls") or []
+        handed = any((tool.get("function") or {}).get("name") == "request_handoff" for tool in tools)
+        if not (message.get("content") or "").strip() and handed:
+            guarded, violations = _unanswered_fallback(), []
+            message.pop("tool_calls", None)
+        else:
+            guarded, violations = guard_text(message.get("content") or "", facts, forbidden, competitors, handoff)
+            guarded = _swap_repeated_question(guarded)
+        guarded = styled(guarded, policy, last_user, graph_mode, tone)
         await record_violations(policy, call_request_id, violations)
         message["content"] = guarded
         payload["choices"][0]["message"] = message
@@ -382,7 +490,8 @@ async def chat_completions(request: Request):
 
         def speak(text):
             nonlocal spoke, ttft_ms, out_chars
-            text = for_speech(text, policy)
+            text = _swap_repeated_question(text)
+            text = styled(text, policy, last_user, graph_mode, tone)
             if not text:
                 return None
             spoke = True
@@ -462,8 +571,9 @@ async def chat_completions(request: Request):
                     fire_and_forget(start_voice(spoken))
                     yield frame
         if handed_off and not spoke and not blocked and not ending and not signing_off:
-            fire_and_forget(start_voice(handoff))
-            yield chunk(handoff)
+            fallback = styled(_unanswered_fallback(), policy, last_user, graph_mode, tone)
+            fire_and_forget(start_voice(fallback))
+            yield chunk(fallback if fallback.endswith(" ") else fallback + " ")
         if (ending or signing_off) and not saw_done:
             yield chunk(
                 tool_calls=[

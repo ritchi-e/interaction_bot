@@ -1,0 +1,23 @@
+{
+  "line_hi": "अरे वाह, बहुत अच्छा! फ्लीका बैंक का पर्सनल लोन पचास हज़ार से दस लाख तक है, और ब्याज सिर्फ़ दस दशमलव नौ नौ प्रतिशत सालाना से शुरू होता है। बताइए, यह राशि किस खास काम के लिए चाहिए?",
+  "line_en": "Oh that's wonderful! Fleeca's personal loan starts at just ten point nine nine percent a year, from fifty thousand up to ten lakh. Tell me, what would you love to use it for?",
+  "default_params": {
+    "temperature": 0.75,
+    "top_p": 0.9,
+    "top_k": 40,
+    "repetition_penalty": 1.1
+  },
+  "expressive_params": {
+    "temperature": 0.95,
+    "top_p": 0.95,
+    "top_k": 50,
+    "repetition_penalty": 1.05
+  },
+  "clone_en_male_retry": {
+    "temperature": 0.85,
+    "top_p": 0.92,
+    "top_k": 40,
+    "repetition_penalty": 1.08
+  },
+  "dropped": "clone_hi_female_default returned empty audio twice"
+}

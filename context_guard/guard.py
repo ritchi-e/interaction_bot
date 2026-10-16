@@ -74,7 +74,8 @@ DONE_RE = re.compile(
     r"|और कुछ नहीं|कुछ नहीं(?!\s*सोच)|नहीं चाहिए|मुझे नहीं चाहिए|"
     r"बस इतना|बस हो गया|हो गया बस|रहने दो|"
     r"रुचि नहीं|इंटरेस्ट नहीं|कॉल मत कर|फोन मत कर|"
-    r"अलविदा|गुड ?बाय|कॉल काट|कॉल काटो|फोन काट|फोन रख|काट दो|बंद करो"
+    r"अलविदा|गुड ?बाय|बाय|कॉल काट|कॉल काटो|फोन काट|फोन रख|काट दो|बंद करो|"
+    r"अभी व्यस्त|व्यस्त हूँ|व्यस्त हूं"
     r"|\b(bas itna|bas ho gaya|ho gaya bas|aur kuch nahi|kuch nahi|"
     r"nahi chahiye|nahin chahiye|interested nahi|interest nahi|"
     r"rehne do|alvida|ok bye|cut (the )?call|hang up)\b"
@@ -97,16 +98,21 @@ BARE_NO_RE = re.compile(r"^(no|nope|nah|nahi|nahin|na|नहीं|ना)[\s.!?
 
 # Whole-utterance thanks / soft close. Mid-turn "thank you, what about EMI?"
 # still has a question so it will not match.
+# "ठीक है very very thank you" and "ok bye thank you" are goodbyes.
+# "thank you, what about the EMI?" is not: words after the thanks must be fillers.
+_THANKS_LEAD = (
+    r"ok|okay|ठीक है|ठीक|haan|haa|हाँ|हां|yes|ji|जी|bye|goodbye|good bye|"
+    r"alvida|अलविदा|very|so|really|bahut|बहुत"
+)
+_THANKS_WORD = (
+    r"thanks|thank you|thankyou|thx|धन्यवाद|शुक्रिया|थैंक्स|"
+    r"dhanyavad|dhanyawad|dhanyavaad|shukriya|shukriyaa"
+)
 BARE_THANKS_RE = re.compile(
-    r"^("
-    r"(ok|okay|ठीक|ठीक है|haan|haa|हाँ|हां|yes|ji|जी)?[\s,]*"
-    r"(thanks|thank you|thankyou|thx|धन्यवाद|शुक्रिया|थैंक्स|"
-    r"dhanyavad|dhanyawad|dhanyavaad|shukriya|shukriyaa)"
-    r"|"
-    r"(thanks|thank you|thankyou|thx|धन्यवाद|शुक्रिया|थैंक्स|"
-    r"dhanyavad|dhanyawad|dhanyavaad|shukriya|shukriyaa)"
-    r"[\s,]*(ok|okay|ठीक|ठीक है|ji|जी)?"
-    r")[\s.!?।,]*$",
+    rf"^(?:(?:{_THANKS_LEAD})[\s,]*)*"
+    rf"(?:{_THANKS_WORD})"
+    rf"(?:[\s,]+(?:{_THANKS_LEAD}))*"
+    r"[\s.!?।]*$",
     re.IGNORECASE,
 )
 
@@ -280,6 +286,85 @@ def contains_term(sentence, term):
     return term.casefold() in sentence.casefold()
 
 
+# Spoken amounts the digit check never saw ("पच्चीस हजार", "इक्कीस साल").
+# Small conversational counts ("दो मिनट") are not claims.
+_HI_NUM = {
+    "शून्य": 0, "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पाँच": 5, "पांच": 5,
+    "छह": 6, "सात": 7, "आठ": 8, "नौ": 9, "दस": 10, "ग्यारह": 11, "बारह": 12,
+    "तेरह": 13, "चौदह": 14, "पंद्रह": 15, "सोलह": 16, "सत्रह": 17, "अठारह": 18,
+    "उन्नीस": 19, "बीस": 20, "इक्कीस": 21, "बाईस": 22, "तेईस": 23, "चौबीस": 24,
+    "पच्चीस": 25, "छब्बीस": 26, "सत्ताईस": 27, "अट्ठाईस": 28, "उनतीस": 29,
+    "तीस": 30, "चालीस": 40, "पचास": 50, "साठ": 60, "सत्तर": 70, "अस्सी": 80,
+    "नब्बे": 90, "अट्ठावन": 58, "अठ्ठावन": 58, "अठ्ठानवे": 98,
+}
+_EN_NUM = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60,
+}
+_MONEY_UNIT = r"(?:हज़ार|हजार|लाख|करोड़|करोड|रुपये|रुपया|रुपए|प्रतिशत|percent|thousand|lakh|crore)"
+_CLAIM_RE = re.compile(
+    rf"((?:[\d]+(?:\.[\d]+)?|{'|'.join(sorted(_HI_NUM, key=len, reverse=True))}|{'|'.join(sorted(_EN_NUM, key=len, reverse=True))})"
+    rf"(?:\s+दशमलव(?:\s+(?:नौ|आठ|सात|छह|पाँच|पांच|चार|तीन|दो|एक|शून्य|\d))+)?"
+    rf"\s+{_MONEY_UNIT})",
+    re.IGNORECASE,
+)
+_AGE_RE = re.compile(
+    r"(उम्र|आयु|आय|योग्य|शर्त|age|income|eligible).{0,40}?"
+    r"([\d]+|इक्कीस|बाईस|तेईस|चौबीस|पच्चीस|तीस|चालीस|पचास|साठ|अट्ठावन|अठ्ठावन|अट्ठाईस)"
+    r"|([\d]+|इक्कीस|बाईस|तेईस|चौबीस|पच्चीस|तीस|चालीस|पचास|साठ|अट्ठावन|अठ्ठावन|अट्ठाईस)\s*(?:साल|वर्ष)",
+    re.IGNORECASE,
+)
+
+
+def _value_token(raw):
+    raw = (raw or "").strip().translate(DIGIT_TABLE)
+    if not raw:
+        return ""
+    if raw[:1].isdigit():
+        return raw
+    return str(_HI_NUM.get(raw) or _EN_NUM.get(raw.casefold()) or "")
+
+
+def _grounded(surface, facts):
+    """True when this amount is already written in the campaign facts."""
+    facts = facts or ""
+    folded = facts.casefold()
+    piece = (surface or "").strip()
+    if not piece:
+        return True
+    if piece.casefold() in folded:
+        return True
+    head = piece.split()[0]
+    # "पचास" is grounded by "पचास हज़ार" in the facts. "पच्चीस" is not.
+    if not head[:1].isdigit() and head.casefold() in folded:
+        return True
+    token = _value_token(head)
+    if token and token in numbers_in(facts):
+        return True
+    if "दशमलव" in piece and head.casefold() in folded:
+        return True
+    return False
+
+
+def invented_quantity(sentence, facts):
+    """A price, rate, or age that the facts never stated.
+
+    Conversational counts such as "दो मिनट" are left alone. A sentence is
+    only rejected when it clearly states a new amount.
+    """
+    text = sentence or ""
+    for match in _CLAIM_RE.finditer(text):
+        if not _grounded(match.group(1), facts):
+            return True
+    if re.search(r"उम्र|आयु|आय|योग्य|शर्त|age|income|eligible", text, re.IGNORECASE):
+        for match in _AGE_RE.finditer(text):
+            surface = match.group(2) or match.group(3) or ""
+            if surface and not _grounded(surface, facts):
+                return True
+    return False
+
+
 def validate_sentence(sentence, facts, forbidden, competitors):
     if not script_ok(sentence):
         return False, "script"
@@ -293,6 +378,8 @@ def validate_sentence(sentence, facts, forbidden, competitors):
     for number in numbers_in(sentence):
         if number not in allowed:
             return False, "unlisted_number"
+    if invented_quantity(sentence, facts):
+        return False, "unlisted_number"
     return True, ""
 
 

@@ -29,6 +29,8 @@ def test_hindi_goodbye_ends_the_call():
     assert caller_is_done(_user("dhanyawad"))
     assert caller_is_done(_user("ठीक है धन्यवाद"))
     assert caller_is_done(_user("ok thank you"))
+    assert caller_is_done(_user("ठीक है very very thank you."))
+    assert caller_is_done(_user("ok bye thank you"))
 
 
 def test_thanks_with_a_question_does_not_end_the_call():

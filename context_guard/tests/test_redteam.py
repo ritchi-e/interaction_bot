@@ -94,6 +94,39 @@ def test_prompt_injection_cannot_replace_the_system_prompt():
     assert any(tool["function"]["name"] == "request_handoff" for tool in sampled["tools"])
 
 
+def test_spoken_amounts_outside_the_facts_are_blocked():
+    facts = "फ्लीका का पर्सनल लोन पचास हज़ार से दस लाख तक है, ब्याज दस दशमलव नौ नौ प्रतिशत।"
+    ok, reason = validate_sentence(
+        "मासिक आय कम से कम पच्चीस हजार रुपये होनी चाहिए।",
+        facts,
+        [],
+        [],
+    )
+    assert ok is False
+    assert reason == "unlisted_number"
+    ok, reason = validate_sentence(
+        "उम्र इक्कीस से अठ्ठावन साल के बीच होनी चाहिए।",
+        facts,
+        [],
+        [],
+    )
+    assert ok is False
+    assert reason == "unlisted_number"
+
+
+def test_spoken_amounts_from_the_facts_are_allowed():
+    facts = "फ्लीका का पर्सनल लोन पचास हज़ार से दस लाख तक है, ब्याज दस दशमलव नौ नौ प्रतिशत।"
+    ok, reason = validate_sentence(
+        "पर्सनल लोन पचास हजार से दस लाख तक है, ब्याज दस दशमलव नौ नौ प्रतिशत से शुरू होता है।",
+        facts,
+        [],
+        [],
+    )
+    assert ok, reason
+    ok, reason = validate_sentence("क्या दो मिनट मिल सकते हैं?", facts, [], [])
+    assert ok, reason
+
+
 def test_hindi_digits_match_ascii_facts():
     assert "499" in numbers_in("फीस ₹४९९ है")
     ok, reason = check("फीस ₹४९९ है।")
