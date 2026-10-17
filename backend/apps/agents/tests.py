@@ -109,6 +109,18 @@ def test_hindi_male_voice_locks_masculine_forms():
 
 
 @pytest.mark.django_db
+def test_hinglish_prompt_keeps_english_words_in_latin():
+    campaign = _campaign()
+    campaign.language = "hinglish"
+    campaign.tts_voice = "male"
+    campaign.save()
+    prompt = compile_system_prompt(campaign)
+    assert "everyday Hinglish" in prompt
+    assert "student, not विद्यार्थी" in prompt
+    assert "You are a man." in prompt
+
+
+@pytest.mark.django_db
 def test_english_prompt_has_no_hindi_gender_rule():
     campaign = _campaign()
     campaign.language = "en_in"

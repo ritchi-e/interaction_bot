@@ -60,6 +60,8 @@ def test_no_dictionary_is_ever_sent():
     [
         ("hi", "female", "hi_female"),
         ("hi", "male", "hi_male"),
+        ("hinglish", "female", "hi_female_hinglish"),
+        ("hinglish", "male", "hi_male_hinglish"),
         ("en_in", "female", "en_female"),
         ("en_in", "male", "en_male"),
     ],

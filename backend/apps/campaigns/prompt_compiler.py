@@ -9,6 +9,13 @@ LANGUAGE_LINES = {
         "Do not switch into an English sentence, and do not change tense mid-reply."
     ),
     "en_in": "Speak only in Indian English.",
+    "hinglish": (
+        "Speak everyday Hinglish, the mix people use on the phone. "
+        "Hindi words stay in Devanagari. English words stay in Latin script. "
+        "Say student, not विद्यार्थी. Say app, not ऐप. Say download, not डाउनलोड. "
+        "Say exam, online, assistant, feature, and Play Store in Latin. "
+        "Do not write a full English sentence, and do not switch the reply into formal Hindi."
+    ),
 }
 
 # Self-hosted system voices use female/male. Legacy cloud speaker names are
@@ -134,7 +141,7 @@ def compile_system_prompt(campaign):
     role = agent.role.strip() if agent and agent.role else "phone agent"
     persona = f"PERSONA: {agent.persona.strip()}\n" if agent and (agent.persona or "").strip() else ""
     agreement = ""
-    if campaign.language == "hi":
+    if campaign.language in ("hi", "hinglish"):
         keys = getattr(campaign.organisation, "provider_keys", None)
         gender = speaker_gender(spoken_voice_name(campaign, keys))
         agreement = f"- {_AGREEMENT[gender]}\n"

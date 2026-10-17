@@ -9,7 +9,7 @@ export type User = {
 export type Campaign = {
   id: string;
   name: string;
-  language: "hi" | "en_in";
+  language: "hi" | "hinglish" | "en_in";
   is_default: boolean;
   is_active: boolean;
   dograh_workflow_uuid: string;

@@ -47,6 +47,7 @@ export default function CampaignsPage() {
             <Label>Language</Label>
             <select className="h-10 rounded-md border border-line bg-white px-3 text-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="hi">Hindi</option>
+              <option value="hinglish">Hinglish</option>
               <option value="en_in">Indian English</option>
             </select>
           </div>

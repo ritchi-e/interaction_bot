@@ -128,9 +128,10 @@ export default function CampaignEditorPage() {
           <Label>Language</Label>
           <select className="h-10 w-full rounded-md border border-line bg-white px-3 text-sm" value={campaign.language} onChange={(e) => setCampaign({ ...campaign, language: e.target.value as Campaign["language"] })}>
             <option value="hi">Hindi</option>
+            <option value="hinglish">Hinglish</option>
             <option value="en_in">Indian English</option>
           </select>
-          <p className="mt-1 text-xs text-ink/50">Hindi already allows English words in the same sentence.</p>
+          <p className="mt-1 text-xs text-ink/50">Hinglish keeps everyday English words in Latin, such as student and app, and the Hindi words in Devanagari.</p>
         </div>
         <div>
           <Label>Voice</Label>

@@ -18,6 +18,8 @@ from django.conf import settings
 _VOICE_IDS = {
     ("hi", "female"): "hi_female",
     ("hi", "male"): "hi_male",
+    ("hinglish", "female"): "hi_female_hinglish",
+    ("hinglish", "male"): "hi_male_hinglish",
     ("en_in", "female"): "en_female",
     ("en_in", "male"): "en_male",
 }
@@ -37,7 +39,7 @@ def voice_gender(campaign) -> str:
 
 def voice_preset_for(campaign) -> str:
     """TTS model id Dograh sends; speech-tts maps it to a system voice."""
-    lang = campaign.language if campaign.language in ("hi", "en_in") else "hi"
+    lang = campaign.language if campaign.language in ("hi", "hinglish", "en_in") else "hi"
     return _VOICE_IDS[(lang, voice_gender(campaign))]
 
 
@@ -88,7 +90,7 @@ def rumik_voice_model_for(campaign_or_language):
         return voice_preset_for(campaign_or_language)
 
     class _Tmp:
-        language = campaign_or_language if campaign_or_language in ("hi", "en_in") else "hi"
+        language = campaign_or_language if campaign_or_language in ("hi", "hinglish", "en_in") else "hi"
         tts_voice = "female"
 
     return voice_preset_for(_Tmp())

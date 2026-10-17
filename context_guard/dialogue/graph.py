@@ -46,6 +46,7 @@ class DialogueGraph:
     steps: dict[str, Step]
     off_topic_markers: tuple[str, ...]
     redirects: tuple[str, ...]
+    speech: str = "hi"
 
     def step(self, step_id: str) -> Step:
         return self.steps[step_id]
@@ -118,6 +119,7 @@ def load_graphs() -> dict[str, DialogueGraph]:
             steps=steps,
             off_topic_markers=tuple(raw.get("off_topic_markers") or ()),
             redirects=tuple(raw.get("redirects") or ()),
+            speech="hinglish" if raw.get("speech") == "hinglish" else "hi",
         )
         found[graph.campaign_id] = graph
         log.info("dialogue graph loaded campaign=%s file=%s", graph.campaign_id, path.name)
@@ -288,6 +290,14 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str, follow: str = "", 
     step = graph.step(step_id if step_id in graph.steps else graph.start)
     question = step.ask or step.reask
     again = step.reask or step.ask
+    hinglish = graph.speech == "hinglish"
+    kind = "Hinglish" if hinglish else "Hindi"
+    mix = ""
+    if hinglish:
+        mix = (
+            " Speak everyday Hinglish. Hindi words in Devanagari, English words in Latin. "
+            "Say student, app, download, exam, online, and assistant in Latin, not as formal Hindi."
+        )
     if step.tone == "cheerful" and mode != "reask":
         mood = (
             "The caller is still with you. Answer what they just said, in short "
@@ -308,7 +318,7 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str, follow: str = "", 
     elif follow:
         instruction = (
             "They agreed to what you just offered. Tell them more about that "
-            "same thing, from FACTS, in two short Hindi sentences. Use facts "
+            f"same thing, from FACTS, in two short {kind} sentences. Use facts "
             "that were not already in the question they just heard. Do not ask "
             "any question in this reply. Do not change the subject, and do not "
             "say you will tell them later. "
@@ -332,7 +342,7 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str, follow: str = "", 
         else:
             instruction = (
                 "They asked a question. If the answer is written in FACTS, say that "
-                "answer now, in one or two short Hindi sentences, using those words. "
+                f"answer now, in one or two short {kind} sentences, using those words. "
                 "Do not say you cannot tell them yet. Do not say you will explain it "
                 "later. Do not start with a different topic, including the interest "
                 "rates, when they asked about something else. After the answer, one "
@@ -342,7 +352,7 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str, follow: str = "", 
         "CURRENT_STEP:\n"
         f"- id: {step.id}\n"
         f"- goal: {step.goal}\n"
-        f"- {instruction}\n"
+        f"- {instruction}{mix}\n"
         "- An allowed question is answered in this reply, even when a later step also covers it.\n"
         "- Do not invent a fact that is not in FACTS.\n"
     )

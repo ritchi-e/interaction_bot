@@ -9,6 +9,7 @@ from apps.tenants.models import Organisation
 class Campaign(TimeStampedModel):
     LANGUAGE_CHOICES = [
         ("hi", "Hindi"),
+        ("hinglish", "Hinglish"),
         ("en_in", "Indian English"),
     ]
     # Self-hosted system voices: Indian-accent female / male. Language comes
