@@ -66,11 +66,13 @@ def test_no_dictionary_is_ever_sent():
 )
 def test_system_voice_follows_language_and_gender(language, voice, model):
     campaign, keys = _campaign(language, tts_voice=voice)
-    tts = build_model_overrides(campaign, keys)["model_overrides"]["tts"]
+    built = build_model_overrides(campaign, keys)
+    tts = built["model_overrides"]["tts"]
     assert tts["provider"] == "openai"
     assert tts["model"] == model
     assert tts["base_url"] == settings.SPEECH_TTS_URL
     assert voice_preset_for(campaign) == model
+    assert built["model_configuration_override"]["tts"]["settings"]["model"] == model
 
 
 @pytest.mark.django_db

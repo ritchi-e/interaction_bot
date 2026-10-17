@@ -6,8 +6,9 @@ campaign's speech language and voice travel as a per-workflow
 
 STT is Deepgram Flux cloud (``flux-general-multi``). Hindi campaigns also
 send an English hint so loanwords such as loan, car, and thank you survive.
-TTS talks the OpenAI speech API to the Voxtral proxy, which maps the model id
-onto a Voxtral preset (``hi_female`` / ``hi_male``).
+TTS talks the OpenAI speech API to the Svara proxy, which maps the model id
+onto a preset (``hi_female`` / ``hi_male``). Dograh reads that id from
+``model_configuration_override``, not from the older ``model_overrides`` block.
 """
 
 from django.conf import settings
@@ -96,10 +97,18 @@ def rumik_voice_model_for(campaign_or_language):
 def build_model_overrides(campaign, keys=None):
     # max_user_idle_timeout: 12s is enough for the caller to answer after the
     # greeting; 30s felt like a dead line when STT missed the first reply.
+    # model_overrides is the retired inline shape. The running Dograh drops
+    # it and uses model_configuration_override, merged onto the org default.
+    # Only the TTS model is patched, so this campaign keeps the shared STT
+    # and LLM and speaks its own voice.
+    voice = voice_preset_for(campaign)
     return {
         "max_user_idle_timeout": 12.0,
         "model_overrides": {
             "stt": _stt_override(campaign),
             "tts": _tts_override(campaign),
+        },
+        "model_configuration_override": {
+            "tts": {"settings": {"model": voice}},
         },
     }

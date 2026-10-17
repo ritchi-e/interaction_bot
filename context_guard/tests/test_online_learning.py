@@ -213,7 +213,12 @@ def test_a_no_plus_a_new_question_does_not_repeat_the_usefulness_question():
     assert "सुविधाओं" in swapped
 
 
-def test_a_yes_does_not_land_on_another_bare_question():
+def test_the_voice_does_not_receive_the_word_it_repeats():
+    from spoken_numbers import speakable_hindi
+
+    spoken = speakable_hindi("क्या पढ़ाई में ऐसी मदद आपके लिए उपयोगी होगी?")
+    assert "होगी" not in spoken
+    assert spoken.endswith("उपयोगी है?")
     graph = _graph()
     assert line_only_asks(graph.step("interest").ask)
     assert line_only_asks(graph.step("faq").ask)

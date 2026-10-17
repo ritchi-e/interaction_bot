@@ -307,11 +307,12 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str, follow: str = "", 
         )
     elif follow:
         instruction = (
-            "They agreed to what you just offered. Explain that from FACTS now, "
-            "in one or two short Hindi sentences, before you ask anything else. "
-            "Do not reply with only a new question. Do not change the subject, "
-            "and do not say you will tell them later. "
-            f"What you offered: {follow} {mood}"
+            "They agreed to what you just offered. Tell them more about that "
+            "same thing, from FACTS, in two short Hindi sentences. Use facts "
+            "that were not already in the question they just heard. Do not ask "
+            "any question in this reply. Do not change the subject, and do not "
+            "say you will tell them later. "
+            f"What they agreed to: {follow} {mood}"
         )
     else:
         if avoid_repeat:

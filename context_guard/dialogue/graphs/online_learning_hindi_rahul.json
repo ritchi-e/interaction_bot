@@ -1,0 +1,73 @@
+{
+  "campaign_id": "7dd93ac3-7bb4-4542-a40a-3d3a04238d65",
+  "start": "pitch",
+  "off_topic_markers": [
+    "कार",
+    "कार लोन",
+    "बाइक",
+    "बाइक लोन",
+    "होम लोन",
+    "बीमा",
+    "क्रिप्टो",
+    "शेयर बाजार"
+  ],
+  "redirects": [
+    "इस कॉल पर ऑनलाइन पढ़ाई सहायक के बारे में बात हो रही है। {reask}",
+    "मैं आपको पढ़ाई में मदद करने वाली सुविधा की जानकारी दे रहा हूँ। {reask}",
+    "चलिए, ऑनलाइन पढ़ाई सहायक के बारे में बात जारी रखते हैं। {reask}"
+  ],
+  "steps": {
+    "pitch": {
+      "goal": "Obtain permission to explain the online learning assistant. Do not repeat the campaign greeting.",
+      "ask": "हम विद्यार्थियों के लिए एक AI आधारित पढ़ाई सहायक के बारे में जानकारी दे रहे हैं। क्या आप इसके बारे में सुनना चाहेंगे?",
+      "reask": "क्या आप इस सुविधा के बारे में जानना चाहेंगे?",
+      "on_yes": "benefit",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "cheerful"
+    },
+    "benefit": {
+      "goal": "Explain only the educational benefits stated in campaign facts, then ask whether this sounds useful.",
+      "ask": "यह सहायक पढ़ाई से जुड़े सवाल समझने, उपलब्ध अध्ययन सामग्री से जानकारी खोजने और परीक्षा की तैयारी में मदद कर सकता है। यह Smarty नाम का एक ऐप है, और Play Store पर डाउनलोड के लिए उपलब्ध है। क्या पढ़ाई में ऐसी मदद आपके लिए उपयोगी है?",
+      "reask": "क्या पढ़ाई में ऐसा सहायक आपके लिए उपयोगी हो सकता है?",
+      "on_yes": "interest",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "interest": {
+      "goal": "Find out whether the caller wants to hear more. Do not assume consent to marketing messages or a callback.",
+      "ask": "क्या आप इसकी सुविधाओं के बारे में थोड़ी और जानकारी सुनना चाहेंगे?",
+      "reask": "क्या आप इसके बारे में और जानकारी सुनना चाहेंगे?",
+      "on_yes": "faq",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "cheerful"
+    },
+    "faq": {
+      "goal": "Invite one question and answer only from offer_details or FAQs. Do not promise sending information or arranging a callback.",
+      "ask": "आप इस सुविधा के बारे में क्या जानना चाहेंगे?",
+      "reask": "क्या आपके मन में इस सुविधा को लेकर कोई सवाल है?",
+      "on_yes": "close",
+      "on_no": "close",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "persuade": {
+      "goal": "Make exactly one respectful attempt to continue. If the caller declines again, end the call. Never pressure, guilt, or argue.",
+      "ask": "कोई बात नहीं। क्या मैं बस इसकी एक छोटी सी जानकारी दे दूँ, ताकि आपको पता चल सके कि यह पढ़ाई में कैसे मदद कर सकता है?",
+      "reask": "क्या आप इसकी छोटी सी जानकारी सुनना चाहेंगे?",
+      "on_yes": "benefit",
+      "on_no": "close",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "close": {
+      "goal": "End the call. The closing line is spoken by the end step, not here.",
+      "ask": "",
+      "reask": "",
+      "on_done": "close",
+      "terminal": true
+    }
+  }
+}

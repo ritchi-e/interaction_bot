@@ -34,7 +34,7 @@ from dialogue.graph import (
 from dialogue.style import apply_style, choose_tag
 from dialogue.intent import classify
 from dialogue.state import load_state, save_state
-from spoken_numbers import expand_numbers
+from spoken_numbers import expand_numbers, speakable_hindi
 from guard import (
     SAFE_FALLBACK,
     caller_is_done,
@@ -147,6 +147,13 @@ def _spoken_text(text):
     return " ".join(bare.split())
 
 
+def _without_new_question(text):
+    """A yes already answered the question. Do not ask another one."""
+    parts = [part.strip() for part in re.split(r"(?<=[.!?।])\s+", text or "") if part.strip()]
+    kept = [part for part in parts if "?" not in part and not part.startswith("क्या")]
+    return " ".join(kept).strip()
+
+
 def for_speech(text, policy):
     """Say numbers as words before Dograh splits a sentence.
 
@@ -155,7 +162,10 @@ def for_speech(text, policy):
     """
     voice = str((policy or {}).get("voice_model") or "")
     language = "English" if voice.lower().startswith("en") else "Hindi"
-    return expand_numbers(text or "", language)
+    spoken = expand_numbers(text or "", language)
+    if language == "Hindi":
+        spoken = speakable_hindi(spoken)
+    return spoken
 
 
 def chunk(content="", finish=None, tool_calls=None):
@@ -407,6 +417,8 @@ async def chat_completions(request: Request):
         else:
             guarded, violations = guard_text(message.get("content") or "", facts, forbidden, competitors, handoff)
             guarded = _swap_repeated_question(guarded)
+        if follow:
+            guarded = _without_new_question(guarded)
         guarded = styled(guarded, policy, last_user, graph_mode, tone)
         await record_violations(policy, call_request_id, violations)
         message["content"] = guarded
@@ -491,6 +503,8 @@ async def chat_completions(request: Request):
         def speak(text):
             nonlocal spoke, ttft_ms, out_chars
             text = _swap_repeated_question(text)
+            if follow:
+                text = _without_new_question(text)
             text = styled(text, policy, last_user, graph_mode, tone)
             if not text:
                 return None

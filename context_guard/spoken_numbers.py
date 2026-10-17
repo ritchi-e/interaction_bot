@@ -202,6 +202,16 @@ def split_sentences(text: str) -> list[str]:
     return parts or ([text] if text else [])
 
 
+def speakable_hindi(text: str) -> str:
+    """Swap words the Hindi voice repeats when it says them.
+
+    The cloned voice says होगी as होगी होगी होगी. है does not do that.
+    """
+    for src, dst in (("होंगी", "हैं"), ("होंगे", "हैं"), ("होगी", "है"), ("होगा", "है")):
+        text = re.sub(rf"(?<![\u0900-\u097F]){src}(?![\u0900-\u097F])", dst, text or "")
+    return text
+
+
 def expand_numbers(text: str, language: str) -> str:
     """Expand digits for Hindi or English. Leave every other word unchanged."""
     text = " ".join((text or "").split())

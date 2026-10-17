@@ -1,0 +1,14 @@
+[Unit]
+Description=Start the caller app, Dograh, and the Svara voice model
+After=docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/data/caller/interaction_bot/deploy/boot-services.sh
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
