@@ -47,6 +47,7 @@ class DialogueGraph:
     off_topic_markers: tuple[str, ...]
     redirects: tuple[str, ...]
     speech: str = "hi"
+    flow: str = "sales"
 
     def step(self, step_id: str) -> Step:
         return self.steps[step_id]
@@ -120,6 +121,7 @@ def load_graphs() -> dict[str, DialogueGraph]:
             off_topic_markers=tuple(raw.get("off_topic_markers") or ()),
             redirects=tuple(raw.get("redirects") or ()),
             speech="hinglish" if raw.get("speech") == "hinglish" else "hi",
+            flow="booking" if raw.get("flow") == "booking" else "sales",
         )
         found[graph.campaign_id] = graph
         log.info("dialogue graph loaded campaign=%s file=%s", graph.campaign_id, path.name)
@@ -355,4 +357,10 @@ def step_block(graph: DialogueGraph, step_id: str, mode: str, follow: str = "", 
         f"- {instruction}{mix}\n"
         "- An allowed question is answered in this reply, even when a later step also covers it.\n"
         "- Do not invent a fact that is not in FACTS.\n"
+        + (
+            "- Do not say an appointment is booked. Booking is saved separately, then read back from the saved row.\n"
+            "- If a time is already taken, say only that it is not available. Never say the other person's name or any detail about them.\n"
+            if graph.flow == "booking"
+            else ""
+        )
     )

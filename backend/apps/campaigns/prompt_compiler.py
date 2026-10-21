@@ -201,6 +201,10 @@ def compile_system_prompt(campaign):
 
 MINIMAL_DOGRAH_PROMPT = """CAMPAIGN_ID: {{campaign_id}}
 CALL_REQUEST_ID: {{call_request_id}}
+CALLER_NUMBER: {{caller_number}}
+CALLED_NUMBER: {{called_number}}
+DIRECTION: {{direction}}
+PROVIDER_CALL_ID: {{provider_call_id}}
 The customer is {{customer_name}}. Speak in the language of this call ({{language}}).
 Do not add offers, prices, or policies of your own. Follow only the instructions supplied with this turn.
 """

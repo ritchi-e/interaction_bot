@@ -99,6 +99,38 @@ class CampaignKeyword(models.Model):
         unique_together = [("campaign", "keyword")]
 
 
+class Appointment(TimeStampedModel):
+    """One booked slot. The same campaign cannot store the same date and time twice."""
+
+    STATUS_CHOICES = [
+        ("booked", "Booked"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organisation = models.ForeignKey(Organisation, on_delete=models.CASCADE, related_name="appointments")
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="appointments")
+    call_request = models.ForeignKey(
+        "calls.CallRequest", null=True, blank=True, on_delete=models.SET_NULL, related_name="appointments"
+    )
+    caller_name = models.CharField(max_length=200)
+    appointment_date = models.DateField()
+    appointment_time = models.TimeField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="booked")
+
+    class Meta:
+        ordering = ["-appointment_date", "-appointment_time"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campaign", "appointment_date", "appointment_time"],
+                condition=models.Q(status="booked"),
+                name="one_booked_appointment_slot",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.caller_name} {self.appointment_date} {self.appointment_time:%H:%M}"
+
+
 class OutboundTemplateMessage(TimeStampedModel):
     """A WhatsApp message we (or the business sender) sent. Replies quote this id."""
 

@@ -1,0 +1,71 @@
+{
+  "campaign_id": "b7e1a4c2-6d38-4f90-8a15-2c9e0d4b6f71",
+  "flow": "booking",
+  "speech": "hinglish",
+  "start": "offer",
+  "off_topic_markers": [],
+  "redirects": [],
+  "steps": {
+    "offer": {
+      "goal": "Offer an appointment to meet the Yugaantar chairperson. Do not ask for the name yet.",
+      "ask": "Yugaantar conference में chairperson से मिलने का appointment book करने के लिए आपकी मदद कर सकता हूँ। क्या आप मुझे अपनी details share करना चाहेंगे?",
+      "reask": "क्या आप मुझे अपनी details share करना चाहेंगे?",
+      "on_yes": "name",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "cheerful"
+    },
+    "name": {
+      "goal": "Ask for the caller's name. Stay here until a name is heard.",
+      "ask": "आपका नाम क्या है?",
+      "reask": "कृपया अपना नाम बताइए।",
+      "on_yes": "date",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "date": {
+      "goal": "Ask for the appointment date. Stay here until a date is heard.",
+      "ask": "किस तारीख को appointment चाहिए?",
+      "reask": "कृपया तारीख बताइए, जैसे कल या पंद्रह October।",
+      "on_yes": "time",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "time": {
+      "goal": "Ask for the appointment time, then the system checks that slot.",
+      "ask": "किस समय मिलना चाहेंगे? सुबह या शाम भी बता दीजिए।",
+      "reask": "कृपया समय बताइए, जैसे तीन बजे शाम।",
+      "on_yes": "confirm",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "confirm": {
+      "goal": "The booking is already saved. Repeat the saved name, date, and time. Do not change them.",
+      "ask": "",
+      "reask": "",
+      "on_yes": "close",
+      "on_no": "close",
+      "on_done": "close",
+      "tone": "cheerful"
+    },
+    "persuade": {
+      "goal": "One respectful try to continue the booking. A second no ends the call.",
+      "ask": "कोई बात नहीं। क्या आप मुझे अपनी details share करना चाहेंगे?",
+      "reask": "क्या आप अपनी details share करना चाहेंगे?",
+      "on_yes": "name",
+      "on_no": "close",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "close": {
+      "goal": "End the call. The closing line is spoken by the end step, not here.",
+      "ask": "",
+      "reask": "",
+      "on_done": "close",
+      "terminal": true
+    }
+  }
+}

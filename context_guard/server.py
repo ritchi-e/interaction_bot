@@ -18,6 +18,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 log = logging.getLogger("context_guard")
 
+from dialogue.booking import CHECKING, PAUSE, SAVE_FAILED, TAKEN, decide
+from dialogue.slots import changed_confirmation, confirmation
 from dialogue.graph import (
     advance,
     after_greeting,
@@ -33,11 +35,12 @@ from dialogue.graph import (
 )
 from dialogue.style import apply_style, choose_tag
 from dialogue.intent import classify
-from dialogue.state import load_state, save_state
+from dialogue.state import load_record, load_state, save_record, save_state
 from spoken_numbers import expand_numbers, speakable_hindi
 from guard import (
     SAFE_FALLBACK,
     caller_is_done,
+    extract_route,
     caller_wants_more,
     closing_instruction,
     closing_line,
@@ -91,6 +94,129 @@ def health():
 @app.get("/v1/models")
 def models():
     return {"object": "list", "data": [{"id": MODEL_NAME, "object": "model", "owned_by": "local"}]}
+
+
+async def _post_booking(campaign_id, call_request_id, slots):
+    if not INTERNAL_TOKEN:
+        return None
+    body = {
+        "campaign_id": campaign_id,
+        "call_request_id": call_request_id,
+        "caller_name": slots.get("name") or "",
+        "date": slots.get("date") or "",
+        "time": slots.get("time") or "",
+    }
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.post(
+            f"{BACKEND}/internal/appointments/book/",
+            json=body,
+            headers={"X-Internal-Token": INTERNAL_TOKEN},
+        )
+    if response.status_code == 409:
+        return "taken"
+    if response.status_code >= 400:
+        return None
+    return response.json()
+
+
+async def _get_booking(appointment_id):
+    if not appointment_id or not INTERNAL_TOKEN:
+        return None
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.get(
+            f"{BACKEND}/internal/appointments/{appointment_id}/",
+            headers={"X-Internal-Token": INTERNAL_TOKEN},
+        )
+    if response.status_code != 200:
+        return None
+    return response.json()
+
+
+async def resolve_booking(dialogue, campaign_id, call_request_id, text, intent):
+    """Collect name, date, and time, then speak the row that was saved."""
+    import datetime
+
+    record = await load_record(call_request_id, dialogue.start)
+    previous_slots = dict(record.get("slots") or {})
+    outcome = decide(
+        dialogue,
+        record["step"],
+        record["opened"],
+        text,
+        record["slots"],
+        intent,
+        datetime.date.today(),
+    )
+    appointment_id = record.get("appointment_id") or ""
+    if outcome["action"] == "book":
+        saved = await _post_booking(campaign_id, call_request_id, outcome["slots"])
+        if saved == "taken":
+            outcome["slots"].pop("time", None)
+            outcome["slots"].pop("pending_clock", None)
+            outcome = {"action": "speak", "step": "time", "slots": outcome["slots"], "text": f"{CHECKING} {PAUSE} {TAKEN}"}
+        elif not saved:
+            outcome["slots"].pop("time", None)
+            outcome["slots"].pop("pending_clock", None)
+            outcome = {"action": "speak", "step": "time", "slots": outcome["slots"], "text": f"{CHECKING} {PAUSE} {SAVE_FAILED}"}
+        else:
+            appointment_id = str(saved.get("id") or "")
+            if appointment_id and previous_slots.get("date") and previous_slots.get("time"):
+                slot_changed, spoken = changed_confirmation(
+                    previous_slots, saved["caller_name"], saved["date"], saved["time"]
+                )
+                text = f"{CHECKING} {PAUSE} {spoken}" if slot_changed else spoken
+            else:
+                text = f"{CHECKING} {PAUSE} {confirmation(saved['caller_name'], saved['date'], saved['time'])}"
+            outcome = {
+                "action": "speak",
+                "step": "confirm",
+                "slots": outcome["slots"],
+                "text": text,
+            }
+    elif outcome["action"] == "repeat":
+        row = await _get_booking(appointment_id)
+        if row:
+            outcome["text"] = confirmation(row["caller_name"], row["date"], row["time"])
+            outcome["action"] = "speak"
+        else:
+            outcome = {"action": "speak", "step": "time", "slots": outcome["slots"], "text": dialogue.step("time").ask}
+    record = {
+        "step": outcome["step"],
+        "refusals": record["refusals"],
+        "opened": outcome["action"] != "hangup" or bool(text),
+        "slots": outcome["slots"],
+        "appointment_id": appointment_id,
+    }
+    if outcome["action"] == "hangup":
+        record["opened"] = True
+        record["step"] = "close"
+    else:
+        record["opened"] = True
+    await save_record(call_request_id, record)
+    return outcome
+
+
+async def _open_inbound(messages):
+    """An inbound call has a caller number and no campaign until we attach one."""
+    if not INTERNAL_TOKEN:
+        return None
+    route = extract_route(messages)
+    caller = route.get("CALLER_NUMBER") or ""
+    if not caller or route.get("DIRECTION") not in {"", "inbound"}:
+        return None
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.post(
+            f"{BACKEND}/internal/calls/inbound/",
+            json={
+                "caller_number": caller,
+                "called_number": route.get("CALLED_NUMBER") or "",
+                "provider_call_id": route.get("PROVIDER_CALL_ID") or "",
+            },
+            headers={"X-Internal-Token": INTERNAL_TOKEN},
+        )
+    if response.status_code != 200:
+        return None
+    return response.json()
 
 
 async def load_policy(campaign_id):
@@ -263,9 +389,28 @@ async def chat_completions(request: Request):
     campaign_id, call_request_id = extract_ids(messages)
     campaign_id = str(metadata.get("campaign_id") or body.get("campaign_id") or campaign_id)
     call_request_id = str(metadata.get("call_request_id") or body.get("call_request_id") or call_request_id)
+    if not campaign_id:
+        opened = await _open_inbound(messages)
+        if opened:
+            campaign_id = str(opened.get("campaign_id") or "")
+            call_request_id = str(opened.get("call_request_id") or call_request_id)
 
     policy = await load_policy(campaign_id)
     stream = bool(body.get("stream"))
+    closing = closing_instruction(messages)
+    # The goodbye is in the end-node prompt. An inbound end node has no campaign
+    # id, so this has to be spoken before the missing-campaign fallback.
+    line = closing_line(closing) if closing else ""
+    if line:
+        if stream:
+            async def close_once():
+                spoken = styled(line, policy or {}, "", "close", "calm")
+                yield chunk(spoken if spoken.endswith((" ", "।", ".", ">", "?")) else spoken + " ")
+                yield chunk(finish="stop")
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(close_once(), media_type="text/event-stream")
+        return JSONResponse(completion(styled(line, policy or {}, "", "close", "calm"), stream=False))
     if policy is None:
         text = SAFE_FALLBACK
         if stream:
@@ -276,21 +421,6 @@ async def chat_completions(request: Request):
 
             return StreamingResponse(fallback(), media_type="text/event-stream")
         return JSONResponse(completion(text, stream=False))
-
-    closing = closing_instruction(messages)
-    # The end node only has to say the closing line. Calling the model here is
-    # what made it say that line, then say it again, without ever dropping the call.
-    line = closing_line(closing) if closing else ""
-    if line:
-        if stream:
-            async def close_once():
-                spoken = styled(line, policy, "", "close", "calm")
-                yield chunk(spoken if spoken.endswith((" ", "।", ".", ">", "?")) else spoken + " ")
-                yield chunk(finish="stop")
-                yield "data: [DONE]\n\n"
-
-            return StreamingResponse(close_once(), media_type="text/event-stream")
-        return JSONResponse(completion(line, stream=False))
 
     prompt = closing or policy["prompt"]
     dialogue = None if closing else graph_for(campaign_id)
@@ -305,30 +435,51 @@ async def chat_completions(request: Request):
                 last_user = message_text(message)
             elif message.get("role") == "assistant":
                 last_assistant = message_text(message)
-        current, refusals, opened = await load_state(call_request_id, dialogue.start)
-        if last_user.strip():
-            intent = classify(last_user, dialogue)
-            if not opened:
-                current, graph_mode, refusals = after_greeting(dialogue, intent, refusals)
-                opened = True
-            elif intent == "yes" and (
-                _offered_something_else(dialogue, current, last_assistant)
-                or yes_should_explain(dialogue, current)
-            ):
-                # They agreed to a question. Say that thing before any new question.
-                # If the next scripted line is only another question, move the
-                # step forward so the same offer is not explained forever.
-                if yes_should_explain(dialogue, current) and not _offered_something_else(
-                    dialogue, current, last_assistant
-                ):
-                    current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
+        if dialogue.flow == "booking":
+            intent = classify(last_user, dialogue) if last_user.strip() else ""
+            outcome = await resolve_booking(dialogue, campaign_id, call_request_id, last_user, intent)
+            current = outcome["step"]
+            if outcome["action"] == "hangup":
+                graph_mode = "close"
+            elif outcome["action"] == "answer":
                 graph_mode = "answer"
-                follow = re.sub(r"<[^>]+>", "", last_assistant).strip()
+                tone = dialogue.step(current).tone if current in dialogue.steps else ""
             else:
-                current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
-            await save_state(call_request_id, current, refusals, opened)
+                spoken = styled(outcome.get("text") or "", policy, last_user, "ask", dialogue.step(current).tone if current in dialogue.steps else "")
+                log.info("booking campaign=%s step=%s", campaign_id, current)
+                if stream:
+                    async def booking_now():
+                        yield chunk(spoken if spoken.endswith(" ") else spoken + " ")
+                        yield chunk(finish="stop")
+                        yield "data: [DONE]\n\n"
+
+                    return StreamingResponse(booking_now(), media_type="text/event-stream")
+                return JSONResponse(completion(spoken, stream=False))
         else:
-            graph_mode = "ask"
+            current, refusals, opened = await load_state(call_request_id, dialogue.start)
+            if last_user.strip():
+                intent = classify(last_user, dialogue)
+                if not opened:
+                    current, graph_mode, refusals = after_greeting(dialogue, intent, refusals)
+                    opened = True
+                elif intent == "yes" and (
+                    _offered_something_else(dialogue, current, last_assistant)
+                    or yes_should_explain(dialogue, current)
+                ):
+                    # They agreed to a question. Say that thing before any new question.
+                    # If the next scripted line is only another question, move the
+                    # step forward so the same offer is not explained forever.
+                    if yes_should_explain(dialogue, current) and not _offered_something_else(
+                        dialogue, current, last_assistant
+                    ):
+                        current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
+                    graph_mode = "answer"
+                    follow = re.sub(r"<[^>]+>", "", last_assistant).strip()
+                else:
+                    current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
+                await save_state(call_request_id, current, refusals, opened)
+            else:
+                graph_mode = "ask"
     if dialogue is not None and graph_mode in {"redirect", "ask", "reask"}:
         salt = f"{call_request_id}:{last_user}"
         if graph_mode == "redirect":

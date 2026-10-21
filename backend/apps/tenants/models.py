@@ -114,6 +114,8 @@ class PlivoLine(TimeStampedModel):
     caller_id = models.CharField(max_length=20, blank=True)
     dograh_config_id = models.PositiveIntegerField(null=True, blank=True)
     dograh_phone_number_id = models.PositiveIntegerField(null=True, blank=True)
+    # The campaign that answers when someone dials this number. Empty means inbound is off.
+    inbound_campaign_id = models.UUIDField(null=True, blank=True)
 
     @property
     def is_ready(self):

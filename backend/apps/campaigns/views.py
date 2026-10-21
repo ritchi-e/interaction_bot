@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from apps.agents.model_overrides import voice_preset_for
 from apps.calls.serializers import CallRequestSerializer
 from apps.calls.models import CallRequest, ContextViolation, Lead
-from apps.calls.services import apply_decision
+from apps.calls.services import apply_decision, open_inbound_call
 from apps.compliance.models import CallPermission
 from apps.campaigns.models import Campaign, OutboundTemplateMessage
 from apps.campaigns.prompt_compiler import MINIMAL_DOGRAH_PROMPT, compile_system_prompt, facts_block
@@ -159,3 +159,19 @@ class InternalViolationView(APIView):
             reason=(request.data.get("reason") or "blocked")[:80],
         )
         return Response({"id": violation.id}, status=status.HTTP_201_CREATED)
+
+
+class InternalInboundCallView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        require_internal(request)
+        opened = open_inbound_call(
+            caller_number=request.data.get("caller_number") or "",
+            called_number=request.data.get("called_number") or "",
+            provider_call_id=request.data.get("provider_call_id") or "",
+        )
+        if opened is None:
+            return Response({"detail": "no inbound campaign for this number"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(opened)

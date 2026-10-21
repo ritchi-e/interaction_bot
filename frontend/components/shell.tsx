@@ -30,6 +30,7 @@ const LINKS = [
   { href: "/app/campaigns", label: "Campaigns" },
   { href: "/app/leads", label: "Leads" },
   { href: "/app/calls", label: "Calls" },
+  { href: "/app/appointments", label: "Appointments" },
 ];
 
 export function Shell({ children }: { children: ReactNode }) {

@@ -34,6 +34,7 @@ ID_RE = re.compile(
     r"(CAMPAIGN_ID|CALL_REQUEST_ID):\s*"
     r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
+ROUTE_RE = re.compile(r"(CALLER_NUMBER|CALLED_NUMBER|DIRECTION|PROVIDER_CALL_ID):\s*(\S+)")
 MAX_TOKENS = 120
 
 
@@ -56,6 +57,16 @@ def extract_ids(messages):
             else:
                 call_request_id = value
     return campaign_id, call_request_id
+
+
+def extract_route(messages):
+    """Caller and dialed number, present on an inbound call and empty on an outbound one."""
+    found = {}
+    for message in messages or []:
+        for kind, value in ROUTE_RE.findall(message_text(message)):
+            if value and not value.startswith("{"):
+                found[kind] = value
+    return found
 
 
 def prepare_messages(messages, prompt):

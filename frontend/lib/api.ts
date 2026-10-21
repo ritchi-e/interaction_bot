@@ -29,6 +29,18 @@ export type Campaign = {
   keywords: string[];
 };
 
+export type AppointmentRow = {
+  id: string;
+  caller_name: string;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  campaign: string;
+  campaign_name: string;
+  call_request: string | null;
+  created_at: string;
+};
+
 export type CallRow = {
   id: string;
   status: string;

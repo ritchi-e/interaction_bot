@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.campaigns.models import Campaign, CampaignContext, CampaignKeyword
+from apps.campaigns.models import Appointment, Campaign, CampaignContext, CampaignKeyword
 
 CONTEXT_FIELDS = [
     "agent_name",
@@ -99,3 +99,21 @@ class CampaignSerializer(serializers.ModelSerializer):
         campaign = super().update(instance, validated_data)
         self._write_related(campaign, context, keywords)
         return campaign
+
+
+class AppointmentSerializer(serializers.ModelSerializer):
+    campaign_name = serializers.CharField(source="campaign.name", read_only=True)
+
+    class Meta:
+        model = Appointment
+        fields = [
+            "id",
+            "caller_name",
+            "appointment_date",
+            "appointment_time",
+            "status",
+            "campaign",
+            "campaign_name",
+            "call_request",
+            "created_at",
+        ]
