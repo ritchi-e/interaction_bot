@@ -15,13 +15,41 @@ _NOT_A_NAME = {
     "hello", "hi", "hey", "namaste", "नमस्ते", "नमस्कार", "good morning",
     "good evening", "appointment", "booking", "book",
 }
-# Noise the recognizer inserts, such as "And you've included", is not a name.
+# Noise the recognizer inserts, such as "And you've included" or "Maybe", is not a name.
 _NOT_NAME_WORD = {
     "a", "an", "and", "the", "you", "you've", "youve", "your", "included", "include",
     "have", "has", "had", "this", "that", "what", "with", "from", "for", "are", "was",
     "were", "been", "please", "hello", "yes", "no", "ok", "okay", "change", "to", "of",
     "it", "its", "it's", "i", "me", "my", "we", "they", "just", "only", "also",
+    "maybe", "sorry", "wait", "thanks", "thank", "धन्यवाद",
 }
+# Words around a name. "मेरा नाम बदलकर निधि कर दो" still has the name निधि.
+# "Hey, then, um, hey. आकाश चोपड़ा" is still आकाश चोपड़ा. "आपका" and "इतना" are not a name.
+_NAME_FILLER = {
+    "मेरा", "mera", "my", "नाम", "naam", "name", "is",
+    "कर", "kar", "दो", "do", "दीजिए", "dijiye", "बताइए",
+    "बदलकर", "बदल", "badal", "change", "please", "प्लीज",
+    "रख", "रखना", "करना", "चाहिए",
+    "ठीक", "theek", "thik", "सही", "sahi", "हाँ", "हां", "नहीं", "नही",
+    "में", "mein", "रहन", "रहना", "रहता", "रहती", "रहते", "rehna", "rehta",
+    "का", "की", "के", "को", "से", "पर", "पे", "जी", "ji",
+    "है", "hai", "हूँ", "हूं", "hoon", "hun", "hu",
+    "पूरा", "पूरी", "पूरे", "full", "complete",
+    "आपका", "आपकी", "आपके", "आप", "अपना", "अपनी", "अपने", "aapka", "aap",
+    "इतना", "इतनी", "इतने", "ऐसा", "ऐसी", "ऐसे", "यह", "ये", "वो", "वह",
+    "तो", "बस", "sir", "madam", "yaar", "यार", "first", "last",
+    "hey", "hi", "hello", "um", "uh", "hmm", "hm", "er", "ah", "oh",
+    "then", "so", "like", "actually", "well", "yeah", "yep", "ok", "okay", "right",
+}
+# "क्या नाम अनिल है" is a name, not a question to ignore.
+_NAME_IN_QUESTION = re.compile(
+    r"^(?:क्या\s+)?(?:मेरा\s+|mera\s+|my\s+)?(?:नाम|name|naam)\s+(.+)$",
+    re.IGNORECASE,
+)
+_NAME_AFTER_CHANGE = re.compile(
+    r"(?:बदल\s*कर|बदल\s*के|badal\s*kar|change\s+to)\s+(.+)$",
+    re.IGNORECASE,
+)
 _YES = re.compile(
     r"^(?:yes|yeah|yep|sure|ok|okay|haan|ha|ji|हाँ|हां|जी|ठीक|ठीक है|बिल्कुल)[\s.!?।]*$",
     re.IGNORECASE,
@@ -77,6 +105,10 @@ _PERIOD = re.compile(r"(सुबह|दोपहर|शाम|रात|morning
 _HOUR_WORDS = {
     "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पांच": 5, "पाँच": 5,
     "छह": 6, "सात": 7, "आठ": 8, "नौ": 9, "दस": 10, "ग्यारह": 11, "बारह": 12,
+    "das": 10, "dus": 10, "gyarah": 11, "gyaarah": 11, "barah": 12, "baarah": 12,
+    "ek": 1, "do": 2, "teen": 3, "tin": 3, "char": 4, "chaar": 4,
+    "paanch": 5, "panch": 5, "chhe": 6, "che": 6, "saat": 7, "sat": 7,
+    "aath": 8, "nau": 9,
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
     "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
 }
@@ -90,24 +122,68 @@ def is_question(text: str) -> bool:
     return _QUESTION.search(text or "") is not None
 
 
+def _devanagari_word(word: str) -> bool:
+    return bool(word) and all("\u0900" <= character <= "\u097f" for character in word)
+
+
+def _latin_word(word: str) -> bool:
+    return bool(word) and all(character.isascii() and character.isalpha() for character in word)
+
+
+def _name_words(words: list[str]) -> list[str]:
+    """Keep the name and drop the recognizer's ums, heys, and आपका/इतना."""
+    kept = []
+    for word in words:
+        folded = word.casefold()
+        if folded in _NAME_FILLER or folded in _NOT_NAME_WORD or folded in _NOT_A_NAME:
+            continue
+        if _devanagari_word(word) or _latin_word(word):
+            kept.append(word)
+    devanagari = [word for word in kept if _devanagari_word(word)]
+    # "Hey, um, आकाश चोपड़ा" is the Hindi name. A fully English "akaash chopra" stays English.
+    if len(devanagari) >= 2:
+        return devanagari
+    return kept
+
+
 def extract_name(text: str) -> str | None:
-    raw = " ".join((text or "").replace("।", " ").split())
-    if not raw or _YES.match(raw) or _NO.match(raw) or is_question(raw):
+    raw = " ".join((text or "").replace("।", " ").replace("?", " ").replace("!", " ").split())
+    if not raw or _YES.match(raw) or _NO.match(raw):
+        return None
+    asked = _NAME_IN_QUESTION.match(raw)
+    if asked:
+        raw = asked.group(1).strip()
+    elif is_question(raw):
         return None
     if _TODAY.search(raw) or _TOMORROW.search(raw) or _DATE_TEXT.search(raw) or _DATE_NUM.search(raw):
         return None
+    moved = _NAME_AFTER_CHANGE.search(raw)
+    if moved:
+        raw = moved.group(1)
     cleaned = _NAME_LEAD.sub("", raw)
     cleaned = _NAME_TAIL.sub("", cleaned).strip(" .,")
     if cleaned.casefold() in _NOT_A_NAME:
         return None
     words = [word.strip(".,'’") for word in cleaned.split() if word.strip(".,'’")]
+    words = _name_words(words)
     if not words or len(words) > 4:
         return None
     if any(character.isdigit() for word in words for character in word):
         return None
-    if any(word.casefold() in _NOT_NAME_WORD for word in words):
-        return None
     return " ".join(words)
+
+
+def name_is_clear(name: str) -> bool:
+    """A first and last name. Hindi or English letters both count. One word does not."""
+    words = [word for word in (name or "").split() if word]
+    if len(words) < 2:
+        return False
+    for word in words:
+        if word.casefold() in _NAME_FILLER or word.casefold() in _NOT_NAME_WORD or len(word) < 2:
+            return False
+        if not (_devanagari_word(word) or _latin_word(word)):
+            return False
+    return True
 
 
 # Spoken days, longest first so चौबीस matches before चार and twenty fourth before fourth.
@@ -116,7 +192,7 @@ _HI_DAYS = (
     ("छब्बीस", 26), ("पच्चीस", 25), ("चौबीस", 24), ("तेईस", 23), ("बाईस", 22),
     ("इक्कीस", 21), ("उन्नीस", 19), ("अठारह", 18), ("सत्रह", 17), ("सोलह", 16),
     ("पंद्रह", 15), ("पन्द्रह", 15), ("चौदह", 14), ("तेरह", 13), ("ग्यारह", 11),
-    ("बारह", 12), ("तीस", 30), ("बीस", 20), ("नौ", 9), ("आठ", 8), ("सात", 7),
+    ("बारह", 12), ("तीस", 30), ("बीस", 20), ("बाइस", 22), ("नौ", 9), ("आठ", 8), ("सात", 7),
     ("छह", 6), ("पांच", 5), ("पाँच", 5), ("चार", 4), ("तीन", 3), ("दो", 2),
     ("दस", 10), ("एक", 1),
 )
@@ -164,9 +240,16 @@ def extract_date(text: str, today: datetime.date) -> str | None:
         if year < 100:
             year += 2000
         return _safe_date(year, month, day, today)
-    month = _month_in(raw)
-    day = _spoken_day(raw, month)
+    # "दो हज़ार चौबीस" is the year 2024, not the 24th of this month.
+    spoken_year, year_span = _spoken_year(raw)
+    date_text = raw
+    if year_span is not None:
+        date_text = raw[: year_span[0]] + " " + raw[year_span[1] :]
+    month = _month_in(date_text)
+    day = _spoken_day(date_text, month)
     if day is None:
+        if spoken_year is not None and spoken_year < today.year:
+            return "past"
         return None
     if month is None:
         # "सुबह दस बजे" is a time. A bare day still counts when they are giving a date.
@@ -183,7 +266,46 @@ def extract_date(text: str, today: datetime.date) -> str | None:
         except ValueError:
             return None
         return _safe_date(year, month_number, day, today)
-    return _safe_date(today.year, month, day, today)
+    return _safe_date(spoken_year or today.year, month, day, today)
+
+
+_YEAR_PHRASE = re.compile(
+    r"(?:दो\s*हजार|do\s*hazar|2\s*hazar|two\s*thousand)\s+"
+    r"((?:twenty[\s-]+)?(?:\d{1,2}|[A-Za-z\u0900-\u097F]+))",
+    re.IGNORECASE,
+)
+_YEAR_NUM = re.compile(r"\b(20\d{2})\b")
+_YEAR_TAIL = {
+    "chaubi": 24, "chaubis": 24, "chaubees": 24,
+    "chhabbis": 26, "chabbis": 26,
+    "pachchis": 25, "pachees": 25,
+    "teis": 23, "baees": 22, "ikkis": 21,
+    "twenty four": 24, "twenty six": 26, "twenty five": 25,
+    "twenty three": 23, "twenty two": 22, "twenty one": 21, "twenty": 20,
+}
+_THOUSAND_AFTER = re.compile(r"\s*(?:हजार|hazar|thousand)\b", re.IGNORECASE)
+
+
+def _spoken_year(text: str) -> tuple[int | None, tuple[int, int] | None]:
+    """A year such as दो हजार चौबीस or 2 hazar chaubis. Not a day of the month."""
+    plain = _plain(text)
+    match = _YEAR_PHRASE.search(plain)
+    if match:
+        token = match.group(1).strip().casefold().replace("-", " ")
+        offset = _YEAR_TAIL.get(token)
+        if offset is None and token.isdigit() and int(token) <= 99:
+            offset = int(token)
+        if offset is None:
+            for word, number in _HI_DAYS:
+                if match.group(1).strip() == word and number <= 99:
+                    offset = number
+                    break
+        if offset is not None:
+            return 2000 + offset, (match.start(), match.end())
+    digit = _YEAR_NUM.search(plain)
+    if digit:
+        return int(digit.group(1)), (digit.start(), digit.end())
+    return None, None
 
 
 def _month_in(text: str) -> int | None:
@@ -237,24 +359,123 @@ def folded_find(text: str, name: str) -> int | None:
     return match.start() if match else None
 
 
+_HALF = re.compile(
+    r"साढ़े|साढे|साडे|(?<![A-Za-z])(?:saadhe|saade|sadhe|sade|started|start)(?![A-Za-z])",
+    re.IGNORECASE,
+)
+_SAWA = re.compile(r"सवा|(?<![A-Za-z])(?:sawa|savva)(?![A-Za-z])", re.IGNORECASE)
+_PAUNE = re.compile(r"पौने|(?<![A-Za-z])(?:paune|pone)(?![A-Za-z])", re.IGNORECASE)
+_DEDH = re.compile(r"डेढ़|डेढ|(?<![A-Za-z])(?:dedh|derh|ded)(?![A-Za-z])", re.IGNORECASE)
+_MINUTE_WORDS = (
+    ("पैंतालीस", 45), ("पैतालीस", 45),
+    ("पन्द्रह", 15), ("पंद्रह", 15), ("pandrah", 15), ("pandrah", 15),
+    ("तीस", 30), ("tees", 30),
+)
+_OFFSET_MIN = re.compile(
+    r"(?:बजकर|बज\s*के|baje?\s*ke|bajkar)\s*(\d{1,2}|तीस|पंद्रह|पन्द्रह|पैंतालीस|पैतालीस)",
+    re.IGNORECASE,
+)
+_MIN_NUM = re.compile(r"(\d{1,2})\s*(?:mins?|minutes?|मिनट)", re.IGNORECASE)
+
+
+def _word_at(text: str, word: str):
+    return re.search(
+        rf"(?<![\w\u0900-\u097F]){re.escape(word)}(?![\w\u0900-\u097F])",
+        text,
+        re.IGNORECASE,
+    )
+
+
+def _as_minute(token: str) -> int | None:
+    token = (token or "").strip()
+    for word, minute in _MINUTE_WORDS:
+        if token.casefold() == word.casefold():
+            return minute
+    if token.isdigit():
+        minute = int(token)
+        if 0 <= minute <= 59:
+            return minute
+    return None
+
+
+def _hour_word(text: str) -> tuple[int, int] | None:
+    found = []
+    for word, hour in sorted(_HOUR_WORDS.items(), key=lambda item: len(item[0]), reverse=True):
+        match = _word_at(text, word)
+        if match and _THOUSAND_AFTER.match(_plain(text[match.end():])) is None:
+            found.append((match.start(), match.end(), hour))
+    found = [
+        item for item in found
+        if not any(other[0] <= item[0] and other[1] >= item[1] and other[1] - other[0] > item[1] - item[0] for other in found)
+    ]
+    if not found:
+        return None
+    start, end, hour = min(found)
+    return hour, end
+
+
+def _clock_parts(raw: str) -> tuple[int, int] | None:
+    minute = None
+    offset = _OFFSET_MIN.search(raw)
+    if offset:
+        minute = _as_minute(offset.group(1))
+    else:
+        numbered = _MIN_NUM.search(raw)
+        if numbered:
+            minute = _as_minute(numbered.group(1))
+    spoken = _hour_word(raw)
+    if spoken:
+        hour, end = spoken
+        if minute is None:
+            for word, value in _MINUTE_WORDS:
+                match = _word_at(raw, word)
+                if match and match.start() >= end:
+                    minute = value
+                    break
+        if minute is None:
+            extra = re.match(r"\s+(\d{1,2})\b", raw[end:])
+            if extra and 0 < int(extra.group(1)) <= 59:
+                minute = int(extra.group(1))
+        return hour, 0 if minute is None else minute
+    match = _CLOCK.search(raw) or _BAJE.search(raw)
+    if match is not None and _THOUSAND_AFTER.match(_plain(raw[match.end():])):
+        match = None
+    if match is None:
+        return None
+    hour = int(match.group(1))
+    clock_minute = int(match.group(2) or 0)
+    if minute is not None:
+        clock_minute = minute
+    elif match.group(2) is None:
+        extra = re.match(r"\s*(\d{1,2})\b", raw[match.end():])
+        if extra and 0 < int(extra.group(1)) <= 59:
+            clock_minute = int(extra.group(1))
+    return hour, clock_minute
+
+
 def extract_time(text: str) -> tuple[str, str] | None:
     """Return ('time', 'HH:MM') or ('ambiguous', 'H:MM') when morning or evening is missing."""
     raw = text or ""
     period = _period(raw)
-    match = _CLOCK.search(raw) or _BAJE.search(raw)
-    if match is None:
-        for word, hour in _HOUR_WORDS.items():
-            if re.search(rf"(?<![\w\u0900-\u097F]){re.escape(word)}(?![\w\u0900-\u097F])", raw, re.IGNORECASE):
-                return _finish_time(hour, 0, period, word_only=True)
+    if _DEDH.search(raw) and _hour_word(raw) is None:
+        return _finish_time(1, 30, period, word_only=True)
+    parts = _clock_parts(raw)
+    if parts is None:
         return None
-    hour = int(match.group(1))
-    minute = int(match.group(2) or 0)
-    marker = match.group(3) if match.lastindex and match.lastindex >= 3 else None
-    if marker:
-        period = "am" if marker.lower().startswith("a") else "pm"
-    if minute > 59 or hour > 23:
+    _, year_span = _spoken_year(raw)
+    if year_span is not None and _clock_parts(raw[: year_span[0]] + " " + raw[year_span[1] :]) is None:
         return None
-    if hour > 12 or (hour == 0 and ":" in match.group(0)):
+    hour, minute = parts
+    if _HALF.search(raw):
+        minute = 30
+    elif _SAWA.search(raw):
+        minute = 15
+    elif _PAUNE.search(raw):
+        minute = 45
+        hour = 12 if hour == 1 else hour - 1
+    if minute > 59 or hour > 23 or hour < 0:
+        return None
+    if hour > 12:
         return ("time", f"{hour:02d}:{minute:02d}")
     return _finish_time(hour, minute, period, word_only=False)
 
@@ -284,7 +505,7 @@ def changed_confirmation(previous: dict, name: str, date_iso: str, time_hm: str)
         parts.append(f"समय {_speak_clock(hour, minute)} कर दिया है।")
     if same_date and same_time:
         parts.append(f"नाम {name} कर दिया है।")
-    question = "क्या यह आपके लिए ठीक है, या कुछ change करूँ?"
+    question = "ठीक है?"
     return (not same_date or not same_time), " ".join(parts) + " " + question
 
 
@@ -297,7 +518,7 @@ def confirmation(name: str, date_iso: str, time_hm: str) -> str:
         f"आपका appointment book हो गया है। नाम {name} है। "
         f"तारीख {spoken_day} {_MONTH_NAMES[month]} {number_to_hindi(year)} है। "
         f"समय {spoken_time} है। यह Yugaantar conference में chairperson से मिलने का appointment है। "
-        f"क्या यह आपके लिए ठीक है, या कुछ change करूँ?"
+        f"सब ठीक है, या कुछ बदलना है?"
     )
 
 
@@ -306,11 +527,9 @@ def _safe_date(year: int, month: int, day: int, today: datetime.date) -> str | N
         found = datetime.date(year, month, day)
     except ValueError:
         return None
+    # A named date that has already passed is not next year. The caller is asked again.
     if found < today:
-        try:
-            found = datetime.date(year + 1, month, day)
-        except ValueError:
-            return None
+        return "past"
     return found.isoformat()
 
 
@@ -347,7 +566,7 @@ def _speak_clock(hour: int, minute: int) -> str:
         period, clock = "सुबह", hour
     elif hour == 12:
         period, clock = "दोपहर", 12
-    elif hour < 17:
+    elif hour < 16:
         period, clock = "दोपहर", hour - 12
     else:
         period, clock = "शाम", hour - 12

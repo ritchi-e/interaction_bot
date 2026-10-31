@@ -8,17 +8,17 @@
   "steps": {
     "offer": {
       "goal": "Offer an appointment to meet the Yugaantar chairperson. Do not ask for the name yet.",
-      "ask": "Yugaantar conference में chairperson से मिलने का appointment book करने के लिए आपकी मदद कर सकता हूँ। क्या आप मुझे अपनी details share करना चाहेंगे?",
-      "reask": "क्या आप मुझे अपनी details share करना चाहेंगे?",
+      "ask": "Yugaantar conference में chairperson से मिलने का appointment book करने के लिए आपकी मदद कर सकती हूँ। क्या आप मुझे अपनी details share करना चाहेंगे?",
+      "reask": "अच्छा, अपनी details बता दीजिए?",
       "on_yes": "name",
       "on_no": "persuade",
       "on_done": "close",
       "tone": "cheerful"
     },
     "name": {
-      "goal": "Ask for the caller's name. Stay here until a name is heard.",
-      "ask": "आपका नाम क्या है?",
-      "reask": "कृपया अपना नाम बताइए।",
+      "goal": "Ask for the caller's full name, first and last. Stay here until both are heard.",
+      "ask": "आपका पूरा नाम क्या है? First name और last name दोनों बता दीजिए।",
+      "reask": "पूरा नाम बता दीजिए, first name और last name।",
       "on_yes": "date",
       "on_no": "persuade",
       "on_done": "close",
@@ -27,7 +27,7 @@
     "date": {
       "goal": "Ask for the appointment date. Stay here until a date is heard.",
       "ask": "किस तारीख को appointment चाहिए?",
-      "reask": "कृपया तारीख बताइए, जैसे कल या पंद्रह October।",
+      "reask": "कोई बात नहीं, कौन सी तारीख ठीक रहेगी?",
       "on_yes": "time",
       "on_no": "persuade",
       "on_done": "close",
@@ -36,7 +36,7 @@
     "time": {
       "goal": "Ask for the appointment time, then the system checks that slot.",
       "ask": "किस समय मिलना चाहेंगे? सुबह या शाम भी बता दीजिए।",
-      "reask": "कृपया समय बताइए, जैसे तीन बजे शाम।",
+      "reask": "सुबह है या शाम, और कितने बजे?",
       "on_yes": "confirm",
       "on_no": "persuade",
       "on_done": "close",
@@ -54,7 +54,7 @@
     "persuade": {
       "goal": "One respectful try to continue the booking. A second no ends the call.",
       "ask": "कोई बात नहीं। क्या आप मुझे अपनी details share करना चाहेंगे?",
-      "reask": "क्या आप अपनी details share करना चाहेंगे?",
+      "reask": "चलिए, details बता दीजिए?",
       "on_yes": "name",
       "on_no": "close",
       "on_done": "close",

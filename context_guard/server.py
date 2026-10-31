@@ -6,20 +6,28 @@ sentence of the model output before it is returned.
 """
 
 import asyncio
+import datetime
 import json
 import logging
 import os
 import re
 import time
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 log = logging.getLogger("context_guard")
+if not log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(_handler)
+    log.setLevel(logging.INFO)
 
-from dialogue.booking import CHECKING, PAUSE, SAVE_FAILED, TAKEN, decide
+from dialogue.booking import CHECKING, PAST_TIME, PAUSE, SAVE_FAILED, TAKEN, decide
 from dialogue.slots import changed_confirmation, confirmation
+from dialogue.understand import understand
 from dialogue.graph import (
     advance,
     after_greeting,
@@ -77,6 +85,7 @@ UPSTREAM_KEY = os.environ.get("UPSTREAM_LLM_API_KEY", "")
 BACKEND = os.environ.get("BACKEND_INTERNAL_URL", "http://127.0.0.1:8000").rstrip("/")
 INTERNAL_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "")
 MODEL_NAME = os.environ.get("UPSTREAM_LLM_MODEL", "gpt-4o-mini")
+INDIA = ZoneInfo("Asia/Kolkata")
 SPEECH_TTS = (
     os.environ.get("SPEECH_TTS_URL")
     or os.environ.get("RUMIK_BRIDGE_URL")
@@ -132,22 +141,40 @@ async def _get_booking(appointment_id):
     return response.json()
 
 
-async def resolve_booking(dialogue, campaign_id, call_request_id, text, intent):
-    """Collect name, date, and time, then speak the row that was saved."""
-    import datetime
+def _time_gone(slots, now):
+    """A slot earlier today has already passed."""
+    try:
+        day = datetime.date.fromisoformat(slots.get("date") or "")
+        hour, minute = (int(part) for part in (slots.get("time") or "").split(":"))
+    except ValueError:
+        return False
+    return day == now.date() and (hour, minute) <= (now.hour, now.minute)
 
+
+async def resolve_booking(dialogue, campaign_id, call_request_id, text, intent, last_bot=""):
+    """Read the turn with the model, check it, and speak the row that was saved."""
+    now = datetime.datetime.now(INDIA)
+    today = now.date()
     record = await load_record(call_request_id, dialogue.start)
     previous_slots = dict(record.get("slots") or {})
+    heard = await understand(text, record["step"], record["slots"], last_bot, today, intent)
     outcome = decide(
         dialogue,
         record["step"],
         record["opened"],
         text,
         record["slots"],
-        intent,
-        datetime.date.today(),
+        heard,
+        today,
     )
     appointment_id = record.get("appointment_id") or ""
+    earlier = None
+    if appointment_id and not (previous_slots.get("date") and previous_slots.get("time")):
+        earlier = await _get_booking(appointment_id)
+    if outcome["action"] == "book" and _time_gone(outcome["slots"], now):
+        outcome["slots"].pop("time", None)
+        outcome["slots"].pop("pending_clock", None)
+        outcome = {"action": "speak", "step": "time", "slots": outcome["slots"], "text": PAST_TIME}
     if outcome["action"] == "book":
         saved = await _post_booking(campaign_id, call_request_id, outcome["slots"])
         if saved == "taken":
@@ -160,6 +187,12 @@ async def resolve_booking(dialogue, campaign_id, call_request_id, text, intent):
             outcome = {"action": "speak", "step": "time", "slots": outcome["slots"], "text": f"{CHECKING} {PAUSE} {SAVE_FAILED}"}
         else:
             appointment_id = str(saved.get("id") or "")
+            if earlier and earlier.get("date") and earlier.get("time"):
+                previous_slots = {
+                    "name": earlier.get("caller_name") or "",
+                    "date": earlier.get("date"),
+                    "time": earlier.get("time"),
+                }
             if appointment_id and previous_slots.get("date") and previous_slots.get("time"):
                 slot_changed, spoken = changed_confirmation(
                     previous_slots, saved["caller_name"], saved["date"], saved["time"]
@@ -437,7 +470,7 @@ async def chat_completions(request: Request):
                 last_assistant = message_text(message)
         if dialogue.flow == "booking":
             intent = classify(last_user, dialogue) if last_user.strip() else ""
-            outcome = await resolve_booking(dialogue, campaign_id, call_request_id, last_user, intent)
+            outcome = await resolve_booking(dialogue, campaign_id, call_request_id, last_user, intent, last_assistant)
             current = outcome["step"]
             if outcome["action"] == "hangup":
                 graph_mode = "close"
