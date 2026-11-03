@@ -83,6 +83,10 @@ class CampaignViewSet(viewsets.ModelViewSet):
             is_test=True,
             status="queued",
         )
+        from apps.campaigns.locum_api import LOCUM_CAMPAIGN_ID, ensure_placeholder_for_call
+
+        if str(campaign.id) == LOCUM_CAMPAIGN_ID:
+            ensure_placeholder_for_call(campaign, call_request)
         CallPermission.objects.create(
             organisation=campaign.organisation, phone_e164=phone, is_permanent=True
         )
@@ -125,15 +129,36 @@ class InternalCampaignContextView(APIView):
         profile = getattr(campaign.organisation, "profile", None)
         business_name = profile.display_name if profile and profile.display_name else campaign.organisation.name
         context = campaign.context
+        facts = facts_block(context, business_name)
+        prompt = compile_system_prompt(campaign)
+        locum_templates = {}
+        call_request_id = str(request.query_params.get("call_request_id") or "").strip()
+        if call_request_id:
+            from apps.campaigns.locum_api import LOCUM_CAMPAIGN_ID, ensure_placeholder_for_call, locum_payload
+            from apps.campaigns.models import LocumInterest
+
+            if str(campaign.id) == LOCUM_CAMPAIGN_ID:
+                row = LocumInterest.objects.filter(call_request_id=call_request_id).order_by("-created_at").first()
+                if row is None:
+                    call = CallRequest.objects.filter(pk=call_request_id, campaign=campaign).first()
+                    if call is not None:
+                        row = ensure_placeholder_for_call(campaign, call)
+                if row is not None:
+                    payload = locum_payload(row)
+                    job_block = f"Job for this call:\n{payload['facts']}"
+                    facts = f"{facts}\n\n{job_block}"
+                    prompt = prompt.rstrip() + f"\n\n{job_block}\n"
+                    locum_templates = payload["templates"]
         return Response(
             {
                 "campaign_id": str(campaign.id),
-                "prompt": compile_system_prompt(campaign),
-                "facts": facts_block(context, business_name),
+                "prompt": prompt,
+                "facts": facts,
                 "handoff_message": context.handoff_message,
                 "forbidden_topics": context.forbidden_topics or [],
                 "competitors": context.competitors or [],
                 "voice_model": voice_preset_for(campaign),
+                "locum_templates": locum_templates,
             }
         )
 

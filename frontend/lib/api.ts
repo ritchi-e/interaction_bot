@@ -41,6 +41,25 @@ export type AppointmentRow = {
   created_at: string;
 };
 
+export type LocumInterestRow = {
+  id: string;
+  phone_e164: string;
+  doctor_name: string;
+  job_id: string;
+  job_title: string;
+  job_location: string;
+  job_specialty: string;
+  job_duration: string;
+  job_facility: string;
+  job_details: Record<string, unknown>;
+  interested: "unknown" | "yes" | "no";
+  campaign: string;
+  campaign_name: string;
+  call_request: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CallRow = {
   id: string;
   status: string;

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.campaigns.models import Appointment, Campaign, CampaignContext, CampaignKeyword
+from apps.campaigns.models import Appointment, Campaign, CampaignContext, CampaignKeyword, LocumInterest
 
 CONTEXT_FIELDS = [
     "agent_name",
@@ -116,4 +116,29 @@ class AppointmentSerializer(serializers.ModelSerializer):
             "campaign_name",
             "call_request",
             "created_at",
+        ]
+
+
+class LocumInterestSerializer(serializers.ModelSerializer):
+    campaign_name = serializers.CharField(source="campaign.name", read_only=True)
+
+    class Meta:
+        model = LocumInterest
+        fields = [
+            "id",
+            "phone_e164",
+            "doctor_name",
+            "job_id",
+            "job_title",
+            "job_location",
+            "job_specialty",
+            "job_duration",
+            "job_facility",
+            "job_details",
+            "interested",
+            "campaign",
+            "campaign_name",
+            "call_request",
+            "created_at",
+            "updated_at",
         ]

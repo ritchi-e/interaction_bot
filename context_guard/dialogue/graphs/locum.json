@@ -1,0 +1,63 @@
+{
+  "campaign_id": "4e377637-2559-4707-9963-b13652dc7f96",
+  "start": "pitch",
+  "off_topic_markers": [
+    "पर्सनल लोन",
+    "एफडी",
+    "बीमा",
+    "क्रिप्टो",
+    "शेयर बाजार",
+    "कार लोन",
+    "होम लोन"
+  ],
+  "redirects": [
+    "इस कॉल पर Dr. Locum की अस्थायी जॉब की बात हो रही है। {reask}",
+    "मैं आपको Dr. Locum ऐप पर पोस्ट हुई जॉब की जानकारी दे रही हूँ। {reask}",
+    "चलिए, इसी जॉब के बारे में बात जारी रखते हैं। {reask}"
+  ],
+  "steps": {
+    "pitch": {
+      "goal": "Get permission to share a temporary doctor job posted on the Dr. Locum app. Do not repeat the campaign greeting.",
+      "ask": "Dr. Locum ऐप पर आपके नज़दीक एक अस्थायी डॉक्टर जॉब पोस्ट हुई है। क्या मैं आपको इसकी जानकारी दे दूँ?",
+      "reask": "क्या मैं इस जॉब की छोटी सी जानकारी दे दूँ?",
+      "on_yes": "job",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "cheerful"
+    },
+    "job": {
+      "goal": "Share only the job facts for this call (title, place, specialty, duration, facility). Do not invent salary. Then ask if they want to hear the interest question.",
+      "ask": "{job_facility} में {job_location} पर {job_specialty} की अस्थायी जॉब है, नाम {job_title}। अवधि लगभग {job_duration} है। यह जॉब Dr. Locum ऐप पर पोस्ट है। क्या आप जानना चाहेंगे कि हम आपकी दिलचस्पी नोट कर सकते हैं?",
+      "reask": "क्या मैं आपकी दिलचस्पी के बारे में पूछूँ?",
+      "on_yes": "interest",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "interest": {
+      "goal": "Ask clearly whether they are interested in this specific job. Record yes or no only; do not take an application on the call.",
+      "ask": "एक बात पक्की कर लेते हैं। क्या आप इस जॉब में दिलचस्पी रखते हैं?",
+      "reask": "बस साफ़ बता दीजिए — क्या आप इस जॉब में दिलचस्पी रखते हैं, हाँ या नहीं?",
+      "on_yes": "close",
+      "on_no": "persuade",
+      "on_done": "close",
+      "tone": "cheerful"
+    },
+    "persuade": {
+      "goal": "One respectful attempt focused on interest. If they decline again, end. Never pressure.",
+      "ask": "कोई बात नहीं। जॉब Dr. Locum ऐप पर उपलब्ध है। क्या आप इस जॉब में दिलचस्पी रखते हैं?",
+      "reask": "क्या आप इसमें दिलचस्पी रखेंगे?",
+      "on_yes": "close",
+      "on_no": "close",
+      "on_done": "close",
+      "tone": "calm"
+    },
+    "close": {
+      "goal": "End the call. The closing line is spoken by the end step, not here.",
+      "ask": "",
+      "reask": "",
+      "on_done": "close",
+      "terminal": true
+    }
+  }
+}

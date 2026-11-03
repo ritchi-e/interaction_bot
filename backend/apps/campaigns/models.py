@@ -140,3 +140,37 @@ class OutboundTemplateMessage(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class LocumInterest(TimeStampedModel):
+    """One doctor outreach for a locum job, plus whether they said they are interested."""
+
+    INTEREST_CHOICES = [
+        ("unknown", "Unknown"),
+        ("yes", "Interested"),
+        ("no", "Not interested"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organisation = models.ForeignKey(Organisation, on_delete=models.CASCADE, related_name="locum_interests")
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="locum_interests")
+    call_request = models.ForeignKey(
+        "calls.CallRequest", null=True, blank=True, on_delete=models.SET_NULL, related_name="locum_interests"
+    )
+    phone_e164 = models.CharField(max_length=20)
+    doctor_name = models.CharField(max_length=200, blank=True)
+    job_id = models.CharField(max_length=120, blank=True)
+    job_title = models.CharField(max_length=300, blank=True)
+    job_location = models.CharField(max_length=300, blank=True)
+    job_specialty = models.CharField(max_length=200, blank=True)
+    job_duration = models.CharField(max_length=120, blank=True)
+    job_facility = models.CharField(max_length=300, blank=True)
+    job_details = models.JSONField(default=dict, blank=True)
+    source_payload = models.JSONField(default=dict, blank=True)
+    interested = models.CharField(max_length=16, choices=INTEREST_CHOICES, default="unknown")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.phone_e164} {self.job_id or self.job_title} {self.interested}"

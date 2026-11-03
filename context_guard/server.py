@@ -252,17 +252,52 @@ async def _open_inbound(messages):
     return response.json()
 
 
-async def load_policy(campaign_id):
+async def load_policy(campaign_id, call_request_id=""):
     if not campaign_id or not INTERNAL_TOKEN:
         return None
+    params = {}
+    if call_request_id:
+        params["call_request_id"] = call_request_id
     async with httpx.AsyncClient(timeout=5.0) as client:
         response = await client.get(
             f"{BACKEND}/internal/campaigns/{campaign_id}/context/",
+            params=params,
             headers={"X-Internal-Token": INTERNAL_TOKEN},
         )
     if response.status_code != 200:
         return None
     return response.json()
+
+
+async def _post_locum_interest(campaign_id, call_request_id, interested: bool):
+    if not INTERNAL_TOKEN or not campaign_id:
+        return
+    body = {
+        "campaign_id": campaign_id,
+        "call_request_id": call_request_id,
+        "interested": "yes" if interested else "no",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{BACKEND}/internal/locum/interest/",
+                json=body,
+                headers={"X-Internal-Token": INTERNAL_TOKEN},
+            )
+    except httpx.HTTPError:
+        log.exception("locum interest save failed campaign=%s", campaign_id)
+
+
+def fill_locum(text, policy):
+    """Fill {job_title} and friends from the per-call locum job payload."""
+    raw = text or ""
+    templates = (policy or {}).get("locum_templates") if isinstance(policy, dict) else None
+    if not templates or "{" not in raw:
+        return raw
+    try:
+        return raw.format_map(templates)
+    except (KeyError, ValueError):
+        return raw
 
 
 def completion(text, stream, tool_calls=None):
@@ -428,7 +463,7 @@ async def chat_completions(request: Request):
             campaign_id = str(opened.get("campaign_id") or "")
             call_request_id = str(opened.get("call_request_id") or call_request_id)
 
-    policy = await load_policy(campaign_id)
+    policy = await load_policy(campaign_id, call_request_id)
     stream = bool(body.get("stream"))
     closing = closing_instruction(messages)
     # The goodbye is in the end-node prompt. An inbound end node has no campaign
@@ -492,6 +527,7 @@ async def chat_completions(request: Request):
             current, refusals, opened = await load_state(call_request_id, dialogue.start)
             if last_user.strip():
                 intent = classify(last_user, dialogue)
+                previous = current
                 if not opened:
                     current, graph_mode, refusals = after_greeting(dialogue, intent, refusals)
                     opened = True
@@ -510,15 +546,21 @@ async def chat_completions(request: Request):
                     follow = re.sub(r"<[^>]+>", "", last_assistant).strip()
                 else:
                     current, graph_mode, refusals = advance(dialogue, current, intent, refusals)
+                if (
+                    campaign_id == "4e377637-2559-4707-9963-b13652dc7f96"
+                    and previous in {"interest", "persuade"}
+                    and intent in {"yes", "no"}
+                ):
+                    fire_and_forget(_post_locum_interest(campaign_id, call_request_id, intent == "yes"))
                 await save_state(call_request_id, current, refusals, opened)
             else:
                 graph_mode = "ask"
     if dialogue is not None and graph_mode in {"redirect", "ask", "reask"}:
         salt = f"{call_request_id}:{last_user}"
         if graph_mode == "redirect":
-            spoken = redirect_line(dialogue, current, salt)
+            spoken = fill_locum(redirect_line(dialogue, current, salt), policy)
         else:
-            spoken = scripted_line(dialogue, current, graph_mode, salt)
+            spoken = fill_locum(scripted_line(dialogue, current, graph_mode, salt), policy)
         tone = dialogue.step(current).tone
         spoken = styled(spoken, policy, last_user, graph_mode, tone)
         log.info(
@@ -537,12 +579,15 @@ async def chat_completions(request: Request):
         return JSONResponse(completion(spoken, stream=False))
     if dialogue is not None and graph_mode != "close":
         tone = dialogue.step(current).tone
-        prompt = prompt.rstrip() + "\n\n" + step_block(
-            dialogue,
-            current,
-            graph_mode,
-            follow,
-            avoid_repeat=declined_pending(last_user),
+        prompt = prompt.rstrip() + "\n\n" + fill_locum(
+            step_block(
+                dialogue,
+                current,
+                graph_mode,
+                follow,
+                avoid_repeat=declined_pending(last_user),
+            ),
+            policy,
         )
     repeat_used = False
 
@@ -552,8 +597,13 @@ async def chat_completions(request: Request):
         if dialogue is None or graph_mode != "answer" or not declined_pending(last_user):
             return text
         step = dialogue.step(current)
-        replacement = "" if repeat_used else next_unsaid_ask(dialogue, current)
-        swapped = replace_repeated_question(text, step.ask, step.reask, replacement)
+        replacement = "" if repeat_used else fill_locum(next_unsaid_ask(dialogue, current), policy)
+        swapped = replace_repeated_question(
+            text,
+            fill_locum(step.ask, policy),
+            fill_locum(step.reask, policy),
+            replacement,
+        )
         if swapped != (text or "").strip() and replacement:
             repeat_used = True
         return swapped
@@ -566,7 +616,7 @@ async def chat_completions(request: Request):
         """
         lines = [handoff]
         if dialogue is not None and declined_pending(last_user):
-            nxt = next_unsaid_ask(dialogue, current)
+            nxt = fill_locum(next_unsaid_ask(dialogue, current), policy)
             if nxt:
                 lines.append(nxt)
         return " ".join(line for line in lines if line).strip()
