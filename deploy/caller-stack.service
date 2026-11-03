@@ -1,5 +1,5 @@
 [Unit]
-Description=Start the caller app, Dograh, and the Svara voice model
+Description=Start the caller app, Dograh, and Maya 2 Native TTS
 After=docker.service
 Requires=docker.service
 Wants=network-online.target

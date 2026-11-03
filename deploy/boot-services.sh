@@ -51,17 +51,32 @@ start_one() {
   fi
 }
 
+# Keep the previous TTS engine off the GPU so Maya can load.
+stop_one() {
+  local name="$1"
+  if ! docker inspect "$name" >/dev/null 2>&1; then
+    return
+  fi
+  docker update --restart no "$name" >/dev/null 2>&1 || true
+  if docker stop "$name" >/dev/null 2>&1; then
+    log "stopped $name (not used at boot)"
+  fi
+}
+
 wait_for "docker" 60 2 docker info
 wait_for "nvidia" 36 5 nvidia-smi || true
 
-# Databases and object storage, then the voice model, then the app, then Dograh.
+stop_one svara-tts-api
+
+# Databases and object storage, then Maya TTS, then the app, then Dograh.
 for name in \
   caller-postgres-1 \
   caller-redis-1 \
   dograh-postgres-1 \
   dograh-redis-1 \
   minio \
-  svara-tts-api \
+  maya-tts-api \
+  maya-tts-proxy \
   caller-backend-1 \
   caller-celery-1 \
   caller-celery-beat-1 \
@@ -74,5 +89,5 @@ do
   start_one "$name"
 done
 
-log "voice model keeps loading after its container starts; /health on svara-tts-api can take several minutes"
+log "Maya keeps loading after its container starts; /health on maya-tts-api can take several minutes on cold boot"
 exit "$missing"
