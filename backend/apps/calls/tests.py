@@ -163,6 +163,50 @@ def test_dograh_webhook_stores_call_log(ready):
 
 
 @pytest.mark.django_db
+def test_dograh_webhook_marks_busy_from_string_context(ready):
+    """Carrier busy arrives as status=completed + stringified initial_context."""
+    user, org, campaign = ready
+    from apps.calls.models import Lead
+
+    lead = Lead.objects.create(organisation=org, phone_e164="+918269446677", campaign=campaign, name="Test")
+    call = CallRequest.objects.create(organisation=org, lead=lead, campaign=campaign, status="in_progress")
+    call.attempts.create(status="dialing")
+
+    body = json.dumps(
+        {
+            "run_id": "118",
+            "status": "completed",
+            "duration_seconds": "0",
+            "end_reason": "busy",
+            "disposition": "busy",
+            "initial_context": json.dumps({"call_request_id": str(call.id)}),
+        }
+    ).encode()
+    signature = hmac.new(b"test-dograh-secret", body, hashlib.sha256).hexdigest()
+    client = APIClient()
+    response = client.post(
+        f"/webhooks/dograh/{org.slug}/",
+        data=body,
+        content_type="application/json",
+        HTTP_X_DOGRAH_SIGNATURE=signature,
+        HTTP_X_DOGRAH_TOKEN=org.whatsapp_calling.webhook_token,
+    )
+    assert response.status_code == 200
+    call.refresh_from_db()
+    attempt = call.attempts.get()
+    assert call.status == "failed"
+    assert attempt.status == "failed"
+    assert attempt.end_reason == "busy"
+    assert attempt.dograh_run_id == "118"
+
+
+def test_extract_run_id_reads_workflow_run_id():
+    from apps.calls.dograh import extract_run_id
+
+    assert extract_run_id({"status": "initiated", "workflow_run_id": 118}) == "118"
+
+
+@pytest.mark.django_db
 def test_dograh_webhook_records_agent_hangup(ready):
     user, org, campaign = ready
     from apps.calls.models import Lead

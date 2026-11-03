@@ -1,0 +1,38 @@
+# TTS overlay: Maya 2 Native (via maya-tts-proxy).
+#
+#   ./deploy/switch-tts.sh maya
+#
+# Or manually, after Maya containers are up:
+#   docker compose -p caller --env-file .env \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.data.yml \
+#     -f deploy/maya.host.yml up -d backend celery celery-beat context-guard
+
+services:
+  voxtral-tts:
+    profiles: ["mistral-tts"]
+
+  speech-tts:
+    profiles: ["mistral-tts"]
+
+  backend:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      SPEECH_TTS_URL: http://maya-tts-proxy:8080/v1
+
+  celery:
+    environment:
+      SPEECH_TTS_URL: http://maya-tts-proxy:8080/v1
+
+  celery-beat:
+    environment:
+      SPEECH_TTS_URL: http://maya-tts-proxy:8080/v1
+
+  context-guard:
+    depends_on: !override
+      - backend
+    environment:
+      SPEECH_TTS_URL: http://maya-tts-proxy:8080/v1

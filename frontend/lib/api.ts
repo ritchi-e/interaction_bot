@@ -106,7 +106,18 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (token) headers.set("Authorization", `Token ${token}`);
   const response = await fetch(path, { ...options, headers });
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  let payload: unknown = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw new Error(
+        response.ok
+          ? "Server returned a non-JSON response"
+          : `Request failed (${response.status})`,
+      );
+    }
+  }
   if (response.status === 401 && typeof window !== "undefined") {
     localStorage.removeItem("token");
     if (window.location.pathname !== "/") window.location.href = "/";

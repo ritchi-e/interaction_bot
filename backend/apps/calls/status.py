@@ -1,5 +1,6 @@
 """Map a Dograh run webhook into one of our call records."""
 
+import json
 from datetime import timezone as dt_timezone
 
 from django.utils import timezone
@@ -13,6 +14,21 @@ HANDOFF_DISPOSITIONS = {"handoff_requested", "handoff", "human_handoff"}
 # https://docs.dograh.com/developer/webhooks — gathered_context.call_status
 AGENT_END_REASONS = {"end_call", "agent_hangup", "assistant_hangup", "bot_hangup"}
 CALLER_END_REASONS = {"user_hangup", "caller_hangup", "customer_hangup", "remote_hangup"}
+# Dograh Status webhooks often send status=completed with end_reason=busy /
+# no_answer when the carrier never connected media. Prefer the end reason.
+FAILED_END_REASONS = {
+    "busy",
+    "user_busy",
+    "no_answer",
+    "noanswer",
+    "no-answer",
+    "failed",
+    "error",
+    "rejected",
+    "cancel",
+    "cancelled",
+    "canceled",
+}
 
 STATUS_MAP = {
     "completed": "completed",
@@ -27,6 +43,18 @@ STATUS_MAP = {
     "ringing": "dialing",
     "dialing": "dialing",
 }
+
+
+def _as_dict(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _dig(payload, *path):
@@ -71,14 +99,20 @@ def ended_by_from_reason(reason):
 
 
 def interpret(payload):
-    initial = payload.get("initial_context") if isinstance(payload.get("initial_context"), dict) else {}
-    gathered = payload.get("gathered_context") if isinstance(payload.get("gathered_context"), dict) else {}
-    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-    cost = payload.get("cost_info") if isinstance(payload.get("cost_info"), dict) else {}
+    initial = _as_dict(payload.get("initial_context"))
+    gathered = _as_dict(payload.get("gathered_context"))
+    metadata = _as_dict(payload.get("metadata"))
+    cost = _as_dict(payload.get("cost_info"))
     call_request_id = (
         str(initial.get("call_request_id") or metadata.get("call_request_id") or payload.get("call_request_id") or "")
     )
-    run_id = str(payload.get("run_id") or payload.get("id") or _dig(payload, "run", "id") or "")
+    run_id = str(
+        payload.get("run_id")
+        or payload.get("workflow_run_id")
+        or payload.get("id")
+        or _dig(payload, "run", "id")
+        or ""
+    )
     raw_status = str(payload.get("status") or payload.get("event") or "").lower()
     if raw_status.startswith("run."):
         raw_status = raw_status.split(".", 1)[1]
@@ -99,6 +133,10 @@ def interpret(payload):
         or ""
     )
     end_reason = str(raw_reason).strip().lower().replace("-", "_").replace(" ", "_")[:80]
+    mapped = STATUS_MAP.get(raw_status, "")
+    disposition_key = disposition.strip().lower().replace("-", "_").replace(" ", "_")
+    if end_reason in FAILED_END_REASONS or disposition_key in FAILED_END_REASONS:
+        mapped = "failed"
     duration = payload.get("duration_seconds")
     if duration in (None, ""):
         duration = payload.get("duration")
@@ -107,7 +145,7 @@ def interpret(payload):
     return {
         "call_request_id": call_request_id,
         "run_id": run_id,
-        "status": STATUS_MAP.get(raw_status, ""),
+        "status": mapped,
         "disposition": disposition,
         "transcript": transcript,
         "recording_url": recording_url,

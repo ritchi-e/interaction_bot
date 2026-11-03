@@ -56,6 +56,8 @@ class DograhWebhookView(APIView):
             attempt = call_request.attempts.order_by("-created_at").first()
         if attempt is None:
             attempt = CallAttempt.objects.create(call_request=call_request, dograh_run_id=parsed["run_id"])
+        if parsed["run_id"] and not attempt.dograh_run_id:
+            attempt.dograh_run_id = parsed["run_id"]
 
         if parsed["transcript"]:
             attempt.transcript = parsed["transcript"]

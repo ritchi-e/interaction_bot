@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from apps.agents.model_overrides import voice_preset_for
 from apps.calls.serializers import CallRequestSerializer
 from apps.calls.models import CallRequest, ContextViolation, Lead
-from apps.calls.services import apply_decision, open_inbound_call
+from apps.calls.services import apply_decision
 from apps.compliance.models import CallPermission
 from apps.campaigns.models import Campaign, OutboundTemplateMessage
 from apps.campaigns.prompt_compiler import MINIMAL_DOGRAH_PROMPT, compile_system_prompt, facts_block
@@ -71,6 +71,36 @@ class CampaignViewSet(viewsets.ModelViewSet):
                 {"detail": "Publish the agent before placing a call."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Stacked dials to the same handset look like "no sound then cut" —
+        # Plivo returns USER_BUSY before any TTS media attaches. Only block
+        # recent attempts; older queued/in_progress rows are stale leftovers.
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        recent_cutoff = timezone.now() - timedelta(minutes=3)
+        CallRequest.objects.filter(
+            organisation=campaign.organisation,
+            lead__phone_e164=phone,
+            status__in=("queued", "dialing", "in_progress"),
+            created_at__lt=recent_cutoff,
+        ).update(status="failed", skip_reason="stale_test_call", updated_at=timezone.now())
+        active = CallRequest.objects.filter(
+            organisation=campaign.organisation,
+            lead__phone_e164=phone,
+            status__in=("queued", "dialing", "in_progress"),
+            created_at__gte=recent_cutoff,
+        ).exists()
+        if active:
+            return Response(
+                {
+                    "detail": (
+                        "A call to this number is already ringing or in progress. "
+                        "Wait for it to finish before testing again."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         lead, _created = Lead.objects.get_or_create(
             organisation=campaign.organisation,
             phone_e164=phone,
@@ -83,14 +113,33 @@ class CampaignViewSet(viewsets.ModelViewSet):
             is_test=True,
             status="queued",
         )
-        from apps.campaigns.locum_api import LOCUM_CAMPAIGN_ID, ensure_placeholder_for_call
+        try:
+            from apps.campaigns.locum_api import LOCUM_CAMPAIGN_ID, ensure_placeholder_for_call
+        except ImportError:
+            LOCUM_CAMPAIGN_ID = None
+            ensure_placeholder_for_call = None  # type: ignore[assignment]
 
-        if str(campaign.id) == LOCUM_CAMPAIGN_ID:
+        if LOCUM_CAMPAIGN_ID and ensure_placeholder_for_call and str(campaign.id) == LOCUM_CAMPAIGN_ID:
             ensure_placeholder_for_call(campaign, call_request)
         CallPermission.objects.create(
             organisation=campaign.organisation, phone_e164=phone, is_permanent=True
         )
-        apply_decision(call_request)
+        # Dial in-process for test calls so a Celery outage can't leave the
+        # UI stuck on "queued" with no ring. Always return JSON — an uncaught
+        # Dograh/network error here used to become an HTML 500 and the UI
+        # showed "JSON parse error / unrecognized token '<'".
+        try:
+            apply_decision(call_request, sync=True)
+        except Exception as exc:  # noqa: BLE001 — surface dial failures as JSON
+            call_request.refresh_from_db()
+            if call_request.status not in ("failed", "skipped", "permission_expired"):
+                call_request.status = "failed"
+                call_request.skip_reason = "dial_error"
+                call_request.save(update_fields=["status", "skip_reason", "updated_at"])
+            return Response(
+                {"detail": f"Could not place the call: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         call_request.refresh_from_db()
         return Response(CallRequestSerializer(call_request).data, status=status.HTTP_201_CREATED)
 
@@ -192,6 +241,8 @@ class InternalInboundCallView(APIView):
 
     def post(self, request):
         require_internal(request)
+        from apps.calls.services import open_inbound_call
+
         opened = open_inbound_call(
             caller_number=request.data.get("caller_number") or "",
             called_number=request.data.get("called_number") or "",

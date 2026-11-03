@@ -54,8 +54,10 @@ class DograhClient:
 def extract_run_id(payload):
     if not isinstance(payload, dict):
         return ""
-    for key in ("run_id", "id"):
-        if payload.get(key):
+    # Dograh's public trigger response uses workflow_run_id; older shapes
+    # used run_id / id. Accept all so Status webhooks can match the attempt.
+    for key in ("workflow_run_id", "run_id", "id"):
+        if payload.get(key) not in (None, ""):
             return str(payload[key])
     for nested in ("run", "data"):
         inner = payload.get(nested)

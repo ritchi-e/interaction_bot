@@ -1,0 +1,75 @@
+# Maya 2 Native TTS (GPU) + OpenAI-compatible voice-mapping proxy (CPU).
+# Joins the existing `caller` network so Dograh/backend can reach it.
+#
+#   docker compose -p maya --env-file ../.env -f maya2-native/docker-compose.yml up -d --build
+#
+# Point SPEECH_TTS_URL at the proxy: http://maya-tts-proxy:8080/v1
+
+name: maya
+
+services:
+  maya-tts-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: maya-tts-api:latest
+    container_name: maya-tts-api
+    gpus: all
+    env_file:
+      - ../.env
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      PATH: /opt/maya2/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    volumes:
+      - ./runtime:/opt/maya2
+      - ./hf-cache:/root/.cache/huggingface
+    networks:
+      - caller
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 420s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  maya-tts-proxy:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+    image: maya-tts-proxy:latest
+    container_name: maya-tts-proxy
+    environment:
+      MAYA_UPSTREAM_URL: http://maya-tts-api:8080
+      SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
+      # Conversational Hindi-trained presets (original Maya roster).
+      MAYA_VOICE_FEMALE: ${MAYA_VOICE_FEMALE:-Nivedita}
+      MAYA_VOICE_MALE: ${MAYA_VOICE_MALE:-Ritvik}
+      MAYA_VOICE_EN_FEMALE: ${MAYA_VOICE_EN_FEMALE:-Tanushree}
+      MAYA_VOICE_EN_MALE: ${MAYA_VOICE_EN_MALE:-Siddhant}
+    depends_on:
+      - maya-tts-api
+    networks:
+      - caller
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+networks:
+  caller:
+    external: true

@@ -124,16 +124,19 @@ def open_inbound_call(*, caller_number, called_number, provider_call_id=""):
     }
 
 
-def apply_decision(call_request, moment=None):
+def apply_decision(call_request, moment=None, *, sync=False):
     decision = evaluate_call(call_request, moment=moment)
     if decision.action == "dial":
         call_request.status = "queued"
         call_request.skip_reason = ""
         call_request.scheduled_for = None
         call_request.save(update_fields=["status", "skip_reason", "scheduled_for", "updated_at"])
-        from apps.calls.tasks import initiate_call
+        if sync:
+            place_dograh_call(call_request)
+        else:
+            from apps.calls.tasks import initiate_call
 
-        initiate_call.delay(str(call_request.id))
+            initiate_call.delay(str(call_request.id))
         return decision
     if decision.action == "schedule":
         call_request.status = "pending_window"
