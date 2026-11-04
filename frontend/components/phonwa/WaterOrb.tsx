@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 
 /**
- * Interactive liquid orb — Phonwa purple/ink theme, round silhouette, white backlight.
+ * Interactive liquid orb — Phonwa purple/ink theme, organic fluid silhouette.
  */
 export function WaterOrb({ className = "" }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,17 +50,20 @@ export function WaterOrb({ className = "" }: { className?: string }) {
         float t = u_time * .35;
         float r = length(uv);
 
-        // Keep silhouette perfectly round; only warp interior color
-        float radius = 0.46;
-        float mask = smoothstep(radius + 0.006, radius - 0.01, r);
-
+        // Liquid surface warp — also shapes the silhouette (first-draft feel)
         float n = fbm(uv*3.2 + vec2(t*.6, -t*.4));
         float n2 = fbm(uv*5.5 - vec2(t*.3, t*.55));
-        float warp = (n-.5)*.055 + (n2-.5)*.028;
+        float warp = (n-.5)*.08 + (n2-.5)*.04;
 
+        // Mouse water ripple
         float md = length(uv - m);
-        float ripple = sin(md*26. - u_time*6.) * exp(-md*4.8) * u_hover * .038;
-        vec2 duv = uv + normalize(uv+1e-4)*warp*mask + (uv-m)*ripple*2.0*mask;
+        float ripple = sin(md*28. - u_time*6.) * exp(-md*4.5) * u_hover * .045;
+        vec2 duv = uv + normalize(uv+1e-4)*warp + (uv-m)*ripple*2.2;
+
+        // Organic / less-round edge via warped distance
+        float rr = length(duv);
+        float radius = 0.42;
+        float mask = smoothstep(radius + 0.045, radius - 0.03, rr);
 
         // Phonwa theme: ink depth → violet → soft lilac
         float marble = fbm(duv*4.2 + n*1.3);
@@ -73,7 +76,7 @@ export function WaterOrb({ className = "" }: { className?: string }) {
         col = mix(col, cLite, veins * 0.55);
         col = mix(col, cHi, pow(marble, 2.2) * 0.22);
 
-        vec3 N = normalize(vec3(duv, sqrt(max(.001, radius*radius - r*r))));
+        vec3 N = normalize(vec3(duv, sqrt(max(.001, radius*radius - rr*rr))));
         vec3 L = normalize(vec3(-.25 + m.x*.45, .5 + m.y*.35, 1.0));
         float diff = clamp(dot(N,L), 0., 1.);
         float spec = pow(clamp(dot(reflect(-L,N), vec3(0.,0.,1.)), 0., 1.), 56.);
@@ -84,18 +87,16 @@ export function WaterOrb({ className = "" }: { className?: string }) {
         float sheen = smoothstep(.22, 0., abs(dot(normalize(duv+1e-4), normalize(m+1e-4)) - .12 - sin(u_time)*.04));
         col += cHi * sheen * u_hover * .2 * mask;
 
-        // Soft white rim light on the orb itself
-        col += vec3(1.0) * fres * .18 * mask;
+        // Soft lilac edge light — no hard white boundary
+        col += cLite * fres * .16 * mask;
 
-        // Thin white rim light just behind the sphere edge (line-thick)
-        float halo = exp(-pow((r - radius) / .018, 2.0));
-        float backlight = halo * (0.7 + 0.25 * u_hover);
-        vec3 glowCol = vec3(1.0, 1.0, 0.98);
+        // Soft outer glow (subtle, not a hard rim)
+        float glow = exp(-pow((r - radius) / .16, 2.)) * (.18 + .28*u_hover);
+        vec3 glowCol = cLite * 0.55;
 
-        vec3 outc = glowCol * backlight;
-        outc = mix(outc, col, mask);
-        float alpha = max(mask, backlight * 0.95);
-        alpha *= smoothstep(1.0, .42, length(uv));
+        vec3 outc = mix(glowCol * glow, col, mask);
+        float alpha = max(mask, glow * .75);
+        alpha *= smoothstep(1.05, .35, length(uv));
 
         gl_FragColor = vec4(outc, alpha);
       }
@@ -201,7 +202,6 @@ export function WaterOrb({ className = "" }: { className?: string }) {
 
   return (
     <div ref={wrapRef} className={`water-orb ${className}`.trim()} aria-hidden="true">
-      <div className="water-orb-spotlight" />
       <canvas ref={canvasRef} className="water-orb-canvas" />
     </div>
   );
