@@ -1,15 +1,31 @@
-@import url("https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=Nunito:wght@400;600;700;800&family=Playpen+Sans:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,650&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Sora:wght@400;500;600;700&family=Baloo+2:wght@500;600;700&family=Nunito:wght@400;600;700;800&family=Playpen+Sans:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,650&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
-  background: #f4f1ea;
-  color: #1c1915;
+  margin: 0;
+}
+
+body:not(:has(.phonwa-home)) {
+  background: #f5f9fb;
+  color: #0b1220;
 }
 
 @layer utilities {
+  .phonwa-marquee {
+    animation: phonwa-marquee 36s linear infinite;
+  }
+
+  .phonwa-grid-fade {
+    background-image:
+      linear-gradient(to right, rgba(11, 18, 32, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(11, 18, 32, 0.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent);
+  }
+
   .sketch-border {
     border: 2.5px solid #2a2218;
     border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;

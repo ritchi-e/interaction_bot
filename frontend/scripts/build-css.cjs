@@ -11,7 +11,8 @@ async function main() {
   });
   const dir = path.join("public");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "styles.css"), result.css);
+  const phonwaLanding = fs.readFileSync(path.join("styles", "phonwa-landing.css"), "utf8");
+  fs.writeFileSync(path.join(dir, "styles.css"), `${result.css}\n\n/* phonwa landing (design system) */\n${phonwaLanding}\n`);
 }
 
 main().catch((error) => {

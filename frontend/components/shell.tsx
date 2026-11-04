@@ -53,7 +53,7 @@ export function Shell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-paper text-ink">
       <link rel="stylesheet" href="/styles.css" />
       <header className="border-b border-line bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
