@@ -48,7 +48,7 @@ services:
       MAYA_UPSTREAM_URL: http://maya-tts-api:8080
       SPEECH_API_TOKEN: ${SPEECH_API_TOKEN:-}
       # Conversational Hindi-trained presets (original Maya roster).
-      MAYA_VOICE_FEMALE: ${MAYA_VOICE_FEMALE:-Nivedita}
+      MAYA_VOICE_FEMALE: ${MAYA_VOICE_FEMALE:-Ahana}
       MAYA_VOICE_MALE: ${MAYA_VOICE_MALE:-Ritvik}
       MAYA_VOICE_EN_FEMALE: ${MAYA_VOICE_EN_FEMALE:-Tanushree}
       MAYA_VOICE_EN_MALE: ${MAYA_VOICE_EN_MALE:-Siddhant}

@@ -16,7 +16,7 @@ production TTS engine for this stack. Campaigns, Dograh, STT, and telephony stay
 
 | Campaign model id | Maya voice | Language |
 |-------------------|------------|----------|
-| `hi_female`, `hi_female_hinglish` | Nivedita | hi |
+| `hi_female`, `hi_female_hinglish` | Ahana | hi |
 | `hi_male`, `hi_male_hinglish` | Ritvik | hi |
 | `en_female` | Tanushree | en |
 | `en_male` | Siddhant | en |

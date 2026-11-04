@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 MAYA_URL = os.environ.get("MAYA_UPSTREAM_URL", "http://maya-tts-api:8080").rstrip("/")
 SPEECH_API_TOKEN = (os.environ.get("SPEECH_API_TOKEN") or "").strip()
-DEFAULT_FEMALE = os.environ.get("MAYA_VOICE_FEMALE", "Nivedita")
+DEFAULT_FEMALE = os.environ.get("MAYA_VOICE_FEMALE", "Ahana")
 DEFAULT_MALE = os.environ.get("MAYA_VOICE_MALE", "Ritvik")
 DEFAULT_EN_FEMALE = os.environ.get("MAYA_VOICE_EN_FEMALE", "Tanushree")
 DEFAULT_EN_MALE = os.environ.get("MAYA_VOICE_EN_MALE", "Siddhant")
